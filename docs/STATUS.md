@@ -1,6 +1,6 @@
 # mdit — Projektstatus
 
-**Letzte Aktualisierung:** 2026-02-24
+**Letzte Aktualisierung:** 2026-02-24 (Task 11 abgeschlossen)
 
 ---
 
@@ -67,11 +67,12 @@
 
 ## Ausstehende Tasks
 
-### Task 11 — Listen, Blockquotes, Tabellen, Fußnoten 🔜
-- `TextAttribute`: `ListMarker`, `BlockquoteBar`, `ParagraphSpacing` ergänzen
-- `renderer.rs`: NodeKind::List, Item, BlockQuote, Table, FootnoteDefinition behandeln
-- Tabellen: Monospace-Fallback (Phase 1)
-- Tests in `renderer_tests.rs`
+### Task 11 — Listen, Blockquotes, Tabellen, Fußnoten ✅
+- `NodeKind::List` → recurse, `NodeKind::Item` → Marker als `ListMarker`-Run + recurse
+- `NodeKind::Table` → Monospace-Fallback
+- `NodeKind::Footnote` → Link-Farbe
+- `NodeKind::BlockQuote` war bereits implementiert
+- 3 neue Tests: `list_item_marker_styled`, `blockquote_gets_bar_attribute`, `table_gets_monospace`
 
 ### Task 12 — Math-Rendering (KaTeX via WKWebView)
 - `src/editor/math_view.rs`
@@ -124,11 +125,11 @@ cargo test
 | cursor_tracker_tests    | 2     | ✅ grün |
 | highlighter_tests       | 2     | ✅ grün |
 | parser_tests            | 9     | ✅ grün |
-| renderer_tests          | 7     | ✅ grün |
-| **Gesamt**              | **26**| ✅      |
+| renderer_tests          | 10    | ✅ grün |
+| **Gesamt**              | **29**| ✅      |
 
 ---
 
 ## Nächster Schritt
 
-**Task 11: Listen, Blockquotes, Tabellen, Fußnoten** — `attributes.rs` erweitern, Renderer für Block-Elemente implementieren, Tests grün machen.
+**Task 12: Math-Rendering (KaTeX via WKWebView)** — `src/editor/math_view.rs` erstellen, `$...$` und `$$...$$` als WKWebView-NSTextAttachment einbetten.
