@@ -257,8 +257,26 @@ define_class!(
         }
     }
 
-    // ── NSTextViewDelegate: show/hide toolbar on selection ────────────────
-    unsafe impl NSTextDelegate for AppDelegate {}
+    // ── NSTextViewDelegate: show/hide toolbar on selection ──────────────────
+    unsafe impl NSTextDelegate for AppDelegate {
+        #[unsafe(method(textDidChange:))]
+        fn text_did_change(&self, _notification: &NSNotification) {
+            let idx = self.ivars().active_index.get();
+            let already_dirty = {
+                let tabs = self.ivars().tabs.borrow();
+                tabs.get(idx).map(|t| t.is_dirty.get()).unwrap_or(true)
+            };
+            if !already_dirty {
+                {
+                    let tabs = self.ivars().tabs.borrow();
+                    if let Some(t) = tabs.get(idx) {
+                        t.is_dirty.set(true);
+                    }
+                }
+                self.rebuild_tab_bar();
+            }
+        }
+    }
 
     unsafe impl NSTextViewDelegate for AppDelegate {
         #[unsafe(method(textViewDidChangeSelection:))]
