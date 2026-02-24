@@ -213,6 +213,77 @@ define_class!(
             self.apply_scheme(scheme);
         }
 
+        // ── File operations ──────────────────────────────────────────────
+
+        #[unsafe(method(newDocument:))]
+        fn new_document_action(&self, _sender: &AnyObject) {
+            self.add_empty_tab();
+        }
+
+        #[unsafe(method(openDocument:))]
+        fn open_document_action(&self, _sender: &AnyObject) {
+            use objc2_app_kit::NSOpenPanel;
+            let panel = NSOpenPanel::openPanel(self.mtm());
+            panel.setCanChooseFiles(true);
+            panel.setCanChooseDirectories(false);
+            panel.setAllowsMultipleSelection(false);
+            let response = unsafe { panel.runModal() };
+            if response != 1 { return; } // NSModalResponseOK = 1
+
+            let ns_url = unsafe { panel.URL() };
+            let Some(ns_url) = ns_url else { return };
+            let Some(ns_path) = (unsafe { ns_url.path() }) else { return };
+            let path = std::path::PathBuf::from(ns_path.to_string());
+
+            // Check if already open
+            {
+                let tabs = self.ivars().tabs.borrow();
+                for (i, t) in tabs.iter().enumerate() {
+                    if t.url.borrow().as_deref() == Some(path.as_path()) {
+                        drop(tabs);
+                        self.switch_to_tab(i);
+                        return;
+                    }
+                }
+            }
+
+            let content = match std::fs::read_to_string(&path) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("mdit: cannot read {:?}: {}", path, e);
+                    return;
+                }
+            };
+
+            self.add_empty_tab();
+            let idx = self.ivars().active_index.get();
+            {
+                let tabs = self.ivars().tabs.borrow();
+                if let Some(t) = tabs.get(idx) {
+                    *t.url.borrow_mut() = Some(path.clone());
+                    t.is_dirty.set(false);
+                    unsafe {
+                        if let Some(storage) = t.text_view.textStorage() {
+                            let full = NSRange { location: 0, length: storage.length() };
+                            storage.replaceCharactersInRange_withString(
+                                full,
+                                &NSString::from_str(&content),
+                            );
+                        }
+                    }
+                }
+            }
+            if let Some(pb) = self.ivars().path_bar.get() {
+                pb.update(Some(path.as_path()));
+            }
+            self.rebuild_tab_bar();
+        }
+
+        #[unsafe(method(saveDocument:))]
+        fn save_document_action(&self, _sender: &AnyObject) {
+            self.perform_save(None);
+        }
+
         // ── Tab management ─────────────────────────────────────────────────
 
         #[unsafe(method(switchToTab:))]
@@ -492,9 +563,69 @@ impl AppDelegate {
         self.switch_to_tab(new_idx);
     }
 
-    /// Save tab at `index` (None = active). Full implementation in Task 8.
-    fn perform_save(&self, _index: Option<usize>) {
-        // TODO: implemented in Task 8
+    /// Save tab at `index` (None = active tab).
+    fn perform_save(&self, index: Option<usize>) {
+        let idx = index.unwrap_or_else(|| self.ivars().active_index.get());
+
+        // Determine path (or open NSSavePanel)
+        let existing_url: Option<std::path::PathBuf> = {
+            let tabs_borrow = self.ivars().tabs.borrow();
+            match tabs_borrow.get(idx) {
+                None => return,
+                Some(t) => {
+                    let url = t.url.borrow().clone();
+                    url
+                }
+            }
+        };
+        let path: std::path::PathBuf = match existing_url {
+            Some(p) => p,
+            None => match self.run_save_panel() {
+                Some(p) => p,
+                None => return,
+            },
+        };
+
+        // Read content from TextStorage
+        let content = {
+            let tabs = self.ivars().tabs.borrow();
+            let tab = match tabs.get(idx) { Some(t) => t, None => return };
+            unsafe { tab.text_view.textStorage() }
+                .map(|s| s.string().to_string())
+                .unwrap_or_default()
+        };
+
+        // Write to disk
+        if let Err(e) = std::fs::write(&path, content.as_bytes()) {
+            eprintln!("mdit: cannot save {:?}: {}", path, e);
+            return;
+        }
+
+        // Update state
+        {
+            let tabs = self.ivars().tabs.borrow();
+            if let Some(t) = tabs.get(idx) {
+                *t.url.borrow_mut() = Some(path.clone());
+                t.is_dirty.set(false);
+            }
+        }
+        if let Some(pb) = self.ivars().path_bar.get() {
+            if idx == self.ivars().active_index.get() {
+                pb.update(Some(path.as_path()));
+            }
+        }
+        self.rebuild_tab_bar();
+    }
+
+    fn run_save_panel(&self) -> Option<std::path::PathBuf> {
+        use objc2_app_kit::NSSavePanel;
+        let panel = NSSavePanel::savePanel(self.mtm());
+        panel.setNameFieldStringValue(&NSString::from_str("Untitled.md"));
+        let response = unsafe { panel.runModal() };
+        if response != 1 { return None; } // NSModalResponseOK = 1
+        let ns_url = unsafe { panel.URL() }?;
+        let ns_path = unsafe { ns_url.path() }?;
+        Some(std::path::PathBuf::from(ns_path.to_string()))
     }
 
     /// Compute and apply the horizontal text container inset for the active tab.
