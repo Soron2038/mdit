@@ -132,10 +132,7 @@ define_class!(
                 ));
             }
             if let Some(pb) = self.ivars().path_bar.get() {
-                pb.view().setFrame(NSRect::new(
-                    NSPoint::new(0.0, 0.0),
-                    NSSize::new(w, PATH_H),
-                ));
+                pb.set_width(w);
             }
             let frame = self.content_frame();
             let idx = self.ivars().active_index.get();
