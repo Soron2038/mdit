@@ -18,14 +18,18 @@ objc2-foundation = { version = "0.3.2", features = [
     "NSDictionary", "NSArray", "NSURL", "NSData",
 ] }
 objc2-app-kit = { version = "0.3.2", features = [
-    "NSApplication", "NSWindow", "NSWindowController",
+    "NSApplication",
+    "NSWindow", "NSWindowController",
+    "NSGraphics",
     "NSTextView", "NSTextStorage", "NSLayoutManager", "NSTextContainer",
-    "NSScrollView", "NSDocument", "NSDocumentController",
+    "NSScrollView",
+    "NSDocument", "NSDocumentController",
     "NSColor", "NSFont", "NSFontDescriptor",
     "NSPanel", "NSVisualEffectView",
     "NSPrintOperation", "NSPrintInfo",
     "NSMenu", "NSMenuItem",
-    "NSParagraphStyle",
+    "NSParagraphStyle", "NSText",
+    "NSResponder", "NSView",
 ] }
 comrak = { version = "0.50.0", default-features = false }
 syntect = { version = "5.3.0", default-features = false, features = [

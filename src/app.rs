@@ -5,21 +5,24 @@ use objc2::runtime::ProtocolObject;
 use objc2::{define_class, msg_send, DefinedClass, MainThreadOnly};
 use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSApplicationDelegate,
-    NSAutoresizingMaskOptions, NSBackingStoreType, NSColor, NSFont,
-    NSScrollView, NSTextView, NSWindow, NSWindowDelegate, NSWindowStyleMask,
+    NSBackingStoreType, NSWindow, NSWindowDelegate, NSWindowStyleMask,
 };
 use objc2_foundation::{
     ns_string, MainThreadMarker, NSNotification, NSObject, NSObjectProtocol,
     NSPoint, NSRect, NSSize,
 };
 
+use mdit::editor::text_storage::MditEditorDelegate;
+
 // ---------------------------------------------------------------------------
 // App Delegate
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 struct AppDelegateIvars {
     window: OnceCell<Retained<NSWindow>>,
+    #[allow(dead_code)]
+    editor_delegate: OnceCell<Retained<MditEditorDelegate>>,
 }
 
 define_class!(
@@ -40,13 +43,14 @@ define_class!(
                 .downcast::<NSApplication>()
                 .unwrap();
 
-            let window = create_window(mtm);
+            let (window, editor_delegate) = create_window(mtm);
 
             window.setDelegate(Some(ProtocolObject::from_ref(self)));
             window.center();
             window.makeKeyAndOrderFront(None);
 
             self.ivars().window.set(window).unwrap();
+            let _ = self.ivars().editor_delegate.set(editor_delegate);
 
             app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
             #[allow(deprecated)]
@@ -78,7 +82,9 @@ impl AppDelegate {
 // Window + Text View
 // ---------------------------------------------------------------------------
 
-fn create_window(mtm: MainThreadMarker) -> Retained<NSWindow> {
+fn create_window(
+    mtm: MainThreadMarker,
+) -> (Retained<NSWindow>, Retained<MditEditorDelegate>) {
     let style = NSWindowStyleMask::Titled
         | NSWindowStyleMask::Closable
         | NSWindowStyleMask::Miniaturizable
@@ -96,52 +102,16 @@ fn create_window(mtm: MainThreadMarker) -> Retained<NSWindow> {
 
     unsafe { window.setReleasedWhenClosed(false) };
     window.setTitle(ns_string!("mdit"));
-    unsafe { window.setContentMinSize(NSSize::new(500.0, 400.0)) };
+    window.setContentMinSize(NSSize::new(500.0, 400.0));
 
-    // Add scroll view + text view as content
+    // Add scroll view + text view (backed by MditTextStorage) as content
     let content = window.contentView().expect("window must have content view");
     let bounds = content.bounds();
-    let scroll_view = create_scroll_text_view(mtm, bounds);
-    unsafe { content.addSubview(&scroll_view) };
+    let (scroll_view, editor_delegate) =
+        mdit::editor::text_view::create_editor_view(mtm, bounds);
+    content.addSubview(&scroll_view);
 
-    window
-}
-
-pub fn create_scroll_text_view(
-    mtm: MainThreadMarker,
-    frame: NSRect,
-) -> Retained<NSScrollView> {
-    let scroll = unsafe { NSScrollView::initWithFrame(NSScrollView::alloc(mtm), frame) };
-    scroll.setHasVerticalScroller(true);
-    scroll.setAutohidesScrollers(true);
-
-    let content_size = scroll.contentSize();
-    let text_rect = NSRect::new(
-        NSPoint::new(0.0, 0.0),
-        NSSize::new(content_size.width, content_size.height.max(content_size.height)),
-    );
-
-    let text_view =
-        unsafe { NSTextView::initWithFrame(NSTextView::alloc(mtm), text_rect) };
-
-    // Basic appearance
-    unsafe {
-        text_view.setRichText(false);
-        text_view.setFont(Some(&NSFont::userFontOfSize(16.0).unwrap_or_else(|| {
-            NSFont::systemFontOfSize(16.0)
-        })));
-        text_view.setTextColor(Some(&NSColor::labelColor()));
-        text_view.setBackgroundColor(&NSColor::textBackgroundColor());
-        text_view.setAutomaticQuoteSubstitutionEnabled(false);
-        text_view.setAutomaticDashSubstitutionEnabled(false);
-        text_view.setAutoresizingMask(
-            NSAutoresizingMaskOptions::ViewWidthSizable
-                | NSAutoresizingMaskOptions::ViewHeightSizable,
-        );
-    }
-
-    scroll.setDocumentView(Some(&*text_view));
-    scroll
+    (window, editor_delegate)
 }
 
 // ---------------------------------------------------------------------------
