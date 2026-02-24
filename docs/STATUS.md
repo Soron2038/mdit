@@ -1,6 +1,6 @@
 # mdit — Projektstatus
 
-**Letzte Aktualisierung:** 2026-02-24 (Phase 1.x Bugfixes abgeschlossen — alle 3 Bugs gefixt)
+**Letzte Aktualisierung:** 2026-02-24 (Multi-Tab File I/O abgeschlossen)
 
 ---
 
@@ -149,9 +149,26 @@
 - `BTN_LABELS` ersetzt durch `BTN_ACTIONS` (Label + CStr-Selektor)
 - **Commits:** `69576e3`
 
+## Multi-Tab File I/O ✅
+
+**Plan:** `docs/plans/2026-02-24-multi-tab-file-io.md`
+
+### Implementierte Features
+- **TabBar** oben im Fenster: Tab-Buttons (× zum Schliessen, + zum Neu), Dirty-Indikator `•`
+- **PathBar** unten: zeigt vollen Dateipfad oder "Untitled — not saved"
+- **DocumentState** per Tab: eigene NSScrollView + NSTextView + MditEditorDelegate
+- **Multi-Tab-Architektur**: AppDelegate verwaltet `Vec<DocumentState>` + active_index
+- **Cmd+N**: neuer leerer Tab
+- **Cmd+O**: NSOpenPanel, .md/.markdown/.txt öffnen, bereits geöffnete Tabs werden erkannt
+- **Cmd+S**: NSSavePanel bei neuem Dokument, sonst direktes Speichern
+- **Dirty-Tracking**: `textDidChange:` setzt `is_dirty = true`, Tab-Label zeigt `•`
+- **Close-Dialog (NSAlert)**: Speichern / Nicht speichern / Abbrechen bei dirty Tabs
+- **Resize**: TabBar und PathBar passen sich an Fenstergröße an
+- **Appearance**: `apply_scheme` iteriert alle Tabs
+
 ## Ausstehende Tasks
 
-*Keine — Phase 1.x Bugfixes abgeschlossen.*
+*Keine — Multi-Tab File I/O abgeschlossen.*
 
 ---
 
@@ -171,12 +188,13 @@ cargo test
 | image_handler_tests     | 3     | ✅ grün |
 | math_view (inline)      | 6     | ✅ grün |
 | appearance_tests        | 3     | ✅ grün |
-||| **Gesamt**              | **48**| ✅      |
+| tab_label_tests         | 6     | ✅ grün |
+||| **Gesamt**              | **58**| ✅      |
 
-**Release-Binary:** `target/release/mdit` — 799 KB, 0 Warnings
+**Release-Binary:** `dist/mdit-0.1.0.dmg` erstellt
 
 ---
 
 ## Nächster Schritt
 
-*Phase 1.x Bugfixes abgeschlossen (3/3). Nächste Phase: Focus-Mode, erweiterte Features.*
+*Multi-Tab File I/O abgeschlossen. Nächste Phase: Focus-Mode, erweiterte Features.*
