@@ -1,6 +1,6 @@
 # mdit — Projektstatus
 
-**Letzte Aktualisierung:** 2026-02-24 (Task 11 abgeschlossen)
+**Letzte Aktualisierung:** 2026-02-24 (Task 12 abgeschlossen)
 
 ---
 
@@ -74,9 +74,12 @@
 - `NodeKind::BlockQuote` war bereits implementiert
 - 3 neue Tests: `list_item_marker_styled`, `blockquote_gets_bar_attribute`, `table_gets_monospace`
 
-### Task 12 — Math-Rendering (KaTeX via WKWebView)
-- `src/editor/math_view.rs`
-- `$...$` und `$$...$$` → WKWebView als NSTextAttachment
+### Task 12 — Math-Rendering (KaTeX via WKWebView) ✅
+- `src/editor/math_view.rs` — `create_math_view(latex, display)` + `build_katex_html()`
+- `objc2-web-kit = "0.3.2"` als Dependency
+- `build_katex_html` unit-getestet (6 Tests, reine Rust-Logik)
+- `create_math_view` baut kompiliert (AppKit-Seite, Main-Thread-Marker korrekt)
+- NSTextAttachment-Embedding als TODO markiert (nächste Integration)
 
 ### Task 13 — Bild-Handling (Inline + Paste-to-Embed)
 - `src/editor/image_handler.rs` (Stub existiert bereits in `mod.rs`)
@@ -126,10 +129,11 @@ cargo test
 | highlighter_tests       | 2     | ✅ grün |
 | parser_tests            | 9     | ✅ grün |
 | renderer_tests          | 10    | ✅ grün |
-| **Gesamt**              | **29**| ✅      |
+| math_view (inline)      | 6     | ✅ grün |
+| **Gesamt**              | **35**| ✅      |
 
 ---
 
 ## Nächster Schritt
 
-**Task 12: Math-Rendering (KaTeX via WKWebView)** — `src/editor/math_view.rs` erstellen, `$...$` und `$$...$$` als WKWebView-NSTextAttachment einbetten.
+**Task 13: Bild-Handling (Inline + Paste-to-Embed)** — `src/editor/image_handler.rs` implementieren: `generate_image_path()`, `save_image_from_clipboard()`, NSPasteboard-Integration.
