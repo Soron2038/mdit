@@ -1,6 +1,6 @@
 # mdit — Projektstatus
 
-**Letzte Aktualisierung:** 2026-02-24 (Task 15 abgeschlossen)
+**Letzte Aktualisierung:** 2026-02-24 (Task 16 abgeschlossen)
 
 ---
 
@@ -94,14 +94,24 @@
 - Button-Actions als TODO-Stubs (noch nicht mit NSTextView verbunden)
 - `NSButton`, `NSButtonCell`, `NSControl` zu objc2-app-kit-Features hinzugefügt
 
+### Task 16 — Light/Dark Mode + Typografie + Rendering-Pipeline ✅
+- `src/ui/appearance.rs`: `ColorScheme` (light/dark) mit `resolve_fg()`/`resolve_bg()` Token-Mapping
+- `src/editor/apply.rs`: `apply_attribute_runs()` — **kritische Lücke geschlossen**: AppKit-Attribut-Layer der alle `AttributeRun`s in echte NSAttributedString-Attribute umwandelt
+  - NSFontAttributeName (Bold/Italic/Monospace via NSFontDescriptor-Traits, FontSize kombiniert)
+  - NSForegroundColorAttributeName, NSBackgroundColorAttributeName, NSStrikethroughStyleAttributeName
+  - NSParagraphStyleAttributeName mit lineSpacing = 9.6pt
+  - Hidden-Spans → `NSColor.clearColor()` (alpha = 0)
+  - UTF-8 → UTF-16 Byte-Offset-Konvertierung für korrekte NSRange
+- `src/editor/text_storage.rs`: `apply_attribute_runs` in `did_process_editing` eingebaut
+  - `applying: Cell<bool>` Guard gegen Rekursion aus Attribut-Callbacks
+  - `scheme: Cell<ColorScheme>` Ivar + `set_scheme()` Methode
+- `src/editor/text_view.rs`: SF Pro `systemFontOfSize_weight(16, Regular)`, initialer `textContainerInset`
+- `src/app.rs`: Appearance-Erkennung beim Start via `NSApp.effectiveAppearance`, `windowDidResize:` für zentriertes Layout (max 700pt)
+- `NSAttributedString`, `NSAppearance`, `NSValue` zu objc2-app-kit/foundation-Features hinzugefügt
+
 ---
 
 ## Ausstehende Tasks
-
-### Task 16 — Light/Dark Mode + Typografie
-- `src/ui/appearance.rs` — `ColorScheme` (light/dark)
-- SF Pro Body/Heading, Monospace für Code
-- Zentrierte Textfläche, max. 700pt breit
 
 ### Task 17 — PDF-Export
 - `src/export/pdf.rs` — NSPrintOperation
@@ -133,10 +143,11 @@ cargo test
 | renderer_tests          | 10    | ✅ grün |
 | image_handler_tests     | 3     | ✅ grün |
 | math_view (inline)      | 6     | ✅ grün |
-| **Gesamt**              | **38**| ✅      |
+| appearance_tests        | 3     | ✅ grün |
+|| **Gesamt**              | **48**| ✅      |
 
 ---
 
 ## Nächster Schritt
 
-**Task 16: Light/Dark Mode + Typografie** — `src/ui/appearance.rs` mit `ColorScheme` (light/dark), SF Pro Body/Heading, Monospace für Code, zentrierte Textfläche max. 700pt breit.
+**Task 17: PDF-Export** — `src/export/pdf.rs` via `NSPrintOperation`. Menüeintrag `File > Export as PDF…` (Cmd+Shift+E).

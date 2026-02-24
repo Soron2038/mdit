@@ -2,12 +2,13 @@ use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2::MainThreadOnly;
 use objc2_app_kit::{
-    NSAutoresizingMaskOptions, NSColor, NSFont, NSScrollView, NSTextView,
+    NSAutoresizingMaskOptions, NSColor, NSFont, NSFontWeightRegular, NSScrollView, NSTextView,
 };
 pub use objc2_app_kit::NSTextView as NSTextViewType;
 use objc2_foundation::{MainThreadMarker, NSPoint, NSRect, NSSize};
 
 use super::text_storage::MditEditorDelegate;
+use crate::ui::appearance::ColorScheme;
 
 /// Build an NSScrollView containing an NSTextView.
 ///
@@ -35,11 +36,12 @@ pub fn create_editor_view(
     // 2. Standard NSTextView (uses default NSTextStorage internally)
     let text_view = NSTextView::initWithFrame(NSTextView::alloc(mtm), text_rect);
 
-    // Basic appearance
+    // Basic appearance — SF Pro body, semantic background color.
     text_view.setRichText(false);
-    text_view.setFont(Some(
-        &NSFont::userFontOfSize(16.0).unwrap_or_else(|| NSFont::systemFontOfSize(16.0)),
-    ));
+    let body_font = unsafe {
+        NSFont::systemFontOfSize_weight(16.0, NSFontWeightRegular)
+    };
+    text_view.setFont(Some(&body_font));
     text_view.setTextColor(Some(&NSColor::labelColor()));
     text_view.setBackgroundColor(&NSColor::textBackgroundColor());
     text_view.setAutomaticQuoteSubstitutionEnabled(false);
@@ -48,9 +50,12 @@ pub fn create_editor_view(
         NSAutoresizingMaskOptions::ViewWidthSizable
             | NSAutoresizingMaskOptions::ViewHeightSizable,
     );
+    // Initial padding — app.rs will tune this dynamically on window resize.
+    text_view.setTextContainerInset(NSSize::new(40.0, 40.0));
 
-    // 3. Wire our delegate to the text view's storage for re-parse on edit
-    let delegate = MditEditorDelegate::new(mtm);
+    // 3. Wire our delegate to the text view's storage for re-parse on edit.
+    //    Default to light scheme; app.rs overrides after appearance detection.
+    let delegate = MditEditorDelegate::new(mtm, ColorScheme::light());
     if let Some(storage) = unsafe { text_view.textStorage() } {
         storage.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
     }

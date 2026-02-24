@@ -5,15 +5,17 @@ use objc2::runtime::ProtocolObject;
 use objc2::{define_class, msg_send, DefinedClass, MainThreadOnly};
 use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSApplicationDelegate,
+    NSAppearanceNameAqua, NSAppearanceNameDarkAqua,
     NSBackingStoreType, NSTextDelegate, NSTextView, NSTextViewDelegate,
     NSWindow, NSWindowDelegate, NSWindowStyleMask,
 };
 use objc2_foundation::{
-    ns_string, MainThreadMarker, NSNotification, NSObject, NSObjectProtocol,
+    ns_string, MainThreadMarker, NSArray, NSNotification, NSObject, NSObjectProtocol,
     NSPoint, NSRange, NSRect, NSSize,
 };
 
 use mdit::editor::text_storage::MditEditorDelegate;
+use mdit::ui::appearance::ColorScheme;
 use mdit::ui::toolbar::FloatingToolbar;
 
 // ---------------------------------------------------------------------------
@@ -23,10 +25,8 @@ use mdit::ui::toolbar::FloatingToolbar;
 #[derive(Default)]
 struct AppDelegateIvars {
     window: OnceCell<Retained<NSWindow>>,
-    #[allow(dead_code)]
     editor_delegate: OnceCell<Retained<MditEditorDelegate>>,
     toolbar: OnceCell<FloatingToolbar>,
-    #[allow(dead_code)]
     text_view: OnceCell<Retained<NSTextView>>,
 }
 
@@ -48,7 +48,14 @@ define_class!(
                 .downcast::<NSApplication>()
                 .unwrap();
 
+            // Detect system appearance before the window appears so the
+            // correct color scheme is active from the very first keystroke.
+            let initial_scheme = detect_scheme(&app);
+
             let (window, text_view, editor_delegate) = create_window(mtm);
+
+            // Override the default light scheme if the system is dark.
+            editor_delegate.set_scheme(initial_scheme);
 
             window.setDelegate(Some(ProtocolObject::from_ref(self)));
             window.center();
@@ -68,6 +75,9 @@ define_class!(
             app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
             #[allow(deprecated)]
             app.activateIgnoringOtherApps(true);
+
+            // Apply initial text container inset for centred layout.
+            self.update_text_container_inset();
         }
 
         #[unsafe(method(applicationShouldTerminateAfterLastWindowClosed:))]
@@ -80,6 +90,11 @@ define_class!(
         #[unsafe(method(windowWillClose:))]
         fn window_will_close(&self, _notification: &NSNotification) {
             NSApplication::sharedApplication(self.mtm()).terminate(None);
+        }
+
+        #[unsafe(method(windowDidResize:))]
+        fn window_did_resize(&self, _notification: &NSNotification) {
+            self.update_text_container_inset();
         }
     }
 
@@ -119,6 +134,22 @@ impl AppDelegate {
         let this = Self::alloc(mtm).set_ivars(AppDelegateIvars::default());
         unsafe { msg_send![super(this), init] }
     }
+
+    /// Compute and apply the horizontal text container inset so the text
+    /// area is centred with a maximum width of ~700 pt.
+    fn update_text_container_inset(&self) {
+        let Some(tv) = self.ivars().text_view.get() else { return };
+        let Some(win) = self.ivars().window.get() else { return };
+        let win_width = win.frame().size.width;
+        let max_text_width = 700.0_f64;
+        let min_padding = 40.0_f64;
+        let h_inset = if win_width > max_text_width + 2.0 * min_padding {
+            (win_width - max_text_width) / 2.0
+        } else {
+            min_padding
+        };
+        tv.setTextContainerInset(NSSize::new(h_inset, 40.0));
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -155,6 +186,31 @@ fn create_window(
     content.addSubview(&scroll_view);
 
     (window, text_view, editor_delegate)
+}
+
+// ---------------------------------------------------------------------------
+// Appearance detection
+// ---------------------------------------------------------------------------
+
+/// Detect the current system appearance and return the matching `ColorScheme`.
+fn detect_scheme(app: &NSApplication) -> ColorScheme {
+    let appearance = app.effectiveAppearance();
+    // NSAppearanceNameAqua / DarkAqua are extern statics (→ unsafe access).
+    let is_dark = unsafe {
+        let names = NSArray::from_slice(&[
+            NSAppearanceNameAqua,
+            NSAppearanceNameDarkAqua,
+        ]);
+        appearance
+            .bestMatchFromAppearancesWithNames(&names)
+            .map(|name| name.isEqualToString(NSAppearanceNameDarkAqua))
+            .unwrap_or(false)
+    };
+    if is_dark {
+        ColorScheme::dark()
+    } else {
+        ColorScheme::light()
+    }
 }
 
 // ---------------------------------------------------------------------------
