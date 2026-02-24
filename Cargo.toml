@@ -30,6 +30,12 @@ objc2-app-kit = { version = "0.3.2", features = [
     "NSMenu", "NSMenuItem",
     "NSParagraphStyle", "NSText",
     "NSResponder", "NSView",
+    "NSTextAttachment",
+] }
+objc2-web-kit = { version = "0.3.2", features = [
+    "WKWebView",
+    "WKWebViewConfiguration",
+    "WKNavigation",
 ] }
 comrak = { version = "0.50.0", default-features = false }
 syntect = { version = "5.3.0", default-features = false, features = [
