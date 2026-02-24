@@ -1,6 +1,6 @@
 # mdit — Projektstatus
 
-**Letzte Aktualisierung:** 2026-02-24 (Task 13 abgeschlossen)
+**Letzte Aktualisierung:** 2026-02-24 (Task 14 abgeschlossen)
 
 ---
 
@@ -81,14 +81,15 @@
 - `tests/image_handler_tests.rs` — 3 Tests grün
 - UUID-Dateinamen, `<stem>-assets/`-Verzeichnis neben Dokument-Datei
 
+### Task 14 — NSDocument-Integration ✅
+- `src/document.rs`: `MditDocument` als NSDocument-Subklasse (`define_class!`)
+- `readFromData:ofType:error:` + `dataOfType:error:` als Stubs (ObjC-Overrides)
+- Vollständige Cmd+O-Integration benötigt noch `Info.plist CFBundleDocumentTypes`
+- `NSError`-Feature zu `objc2-foundation` hinzugefügt
+
 ---
 
 ## Ausstehende Tasks
-
-### Task 14 — NSDocument-Integration
-- `src/document.rs` — NSDocument-Subklasse
-- Autosave + Versionshistorie via macOS
-- Öffnen / Speichern von `.md`-Dateien
 
 ### Task 15 — Floating Formatting Toolbar
 - `src/ui/toolbar.rs` — NSPanel mit NSVisualEffectView
@@ -136,4 +137,4 @@ cargo test
 
 ## Nächster Schritt
 
-**Task 14: NSDocument-Integration** — `src/document.rs` mit NSDocument-Subklasse (`MditDocument`), Autosave + Versionshistorie, Öffnen/Speichern von `.md`-Dateien.
+**Task 15: Floating Formatting Toolbar** — `src/ui/toolbar.rs` mit NSPanel + NSVisualEffectView, erscheint bei Textauswahl über der Selektion, Buttons: Bold, Italic, Code, Strikethrough, Link, H1/H2/H3.
