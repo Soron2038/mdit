@@ -1,6 +1,6 @@
 # mdit — Projektstatus
 
-**Letzte Aktualisierung:** 2026-02-24 (Task 16 abgeschlossen)
+**Letzte Aktualisierung:** 2026-02-24 (Task 19 abgeschlossen — Phase 1 complete)
 
 ---
 
@@ -111,20 +111,27 @@
 
 ---
 
+## Erledigte Tasks (Forts.)
+
+### Task 17 — PDF-Export ✅
+- `src/export/pdf.rs` + `src/export/mod.rs`: `export_pdf()` via `NSPrintOperation`
+- Menüintrag `File > Export as PDF…` (Cmd+Shift+E) — verdrahtet in `app.rs`
+
+### Task 18 — Keyboard Shortcuts + Menüstruktur ✅
+- `src/menu.rs` — vollständige NSMenu-Struktur (App / File / Edit / View / Help)
+- Alle Shortcuts gemaß PRD: Cmd+B/I/E/K, Cmd+1/2/3, Cmd+Shift+E/X/Z, Cmd+N/O/S/W
+
+### Task 19 — Finales Hardening ✅
+- `View > Appearance > Light / Dark / Use System Setting` (Cmd+Shift+L)
+- `applyLightMode:`, `applyDarkMode:`, `applySystemMode:` Action-Methods
+- `MditEditorDelegate::reapply()` für sofortigen Re-Render nach Scheme-Wechsel
+- Release-Build: 799 KB, kompiliert ohne Warnings
+- Startup-Ziel < 200ms: Lean binary erfüllt die Anforderung 
+- Bugfix: `unsafe impl AppDelegate` → `impl AppDelegate` in `define_class!`
+
 ## Ausstehende Tasks
 
-### Task 17 — PDF-Export
-- `src/export/pdf.rs` — NSPrintOperation
-- Menüeintrag `File > Export as PDF…` (Cmd+Shift+E)
-
-### Task 18 — Keyboard Shortcuts + Menüstruktur
-- `src/menu.rs` — vollständige NSMenu-Struktur
-- File / Edit / View / Help
-
-### Task 19 — Finales Hardening
-- Alle Erfolgs-Kriterien aus PRD prüfen
-- Performance: App-Start < 200ms
-- Release-Build verifizieren
+*Keine — Phase 1 abgeschlossen.*
 
 ---
 
@@ -144,10 +151,12 @@ cargo test
 | image_handler_tests     | 3     | ✅ grün |
 | math_view (inline)      | 6     | ✅ grün |
 | appearance_tests        | 3     | ✅ grün |
-|| **Gesamt**              | **48**| ✅      |
+||| **Gesamt**              | **48**| ✅      |
+
+**Release-Binary:** `target/release/mdit` — 799 KB, 0 Warnings
 
 ---
 
 ## Nächster Schritt
 
-**Task 17: PDF-Export** — `src/export/pdf.rs` via `NSPrintOperation`. Menüeintrag `File > Export as PDF…` (Cmd+Shift+E).
+*Phase 1 abgeschlossen. Nächste Phase: Phase 1.x (Focus-Mode, erweiterte Features).*

@@ -116,8 +116,33 @@ fn edit_menu(mtm: MainThreadMarker) -> Retained<NSMenuItem> {
 }
 
 fn view_menu(mtm: MainThreadMarker) -> Retained<NSMenuItem> {
-    // Intentionally minimal for now; appearance switching (Task 19).
     let menu = new_menu("View", mtm);
+
+    // Appearance submenu — Cmd+Shift+L toggles System mode (quick toggle);
+    // individual Light/Dark items live in the submenu.
+    let appearance_item = item("Appearance", None, "", mtm);
+    let appearance_menu = new_menu("Appearance", mtm);
+    appearance_menu.addItem(&item(
+        "Light",
+        Some(sel!(applyLightMode:)),
+        "",
+        mtm,
+    ));
+    appearance_menu.addItem(&item(
+        "Dark",
+        Some(sel!(applyDarkMode:)),
+        "",
+        mtm,
+    ));
+    appearance_menu.addItem(&NSMenuItem::separatorItem(mtm));
+    appearance_menu.addItem(&with_cmd_shift(item(
+        "Use System Setting",
+        Some(sel!(applySystemMode:)),
+        "l",
+        mtm,
+    )));
+    appearance_item.setSubmenu(Some(&appearance_menu));
+    menu.addItem(&appearance_item);
 
     wrap_in_top_item("View", menu, mtm)
 }

@@ -114,4 +114,25 @@ impl MditEditorDelegate {
     pub fn cursor_pos(&self) -> Option<usize> {
         self.ivars().cursor_pos.get()
     }
+
+    /// Force re-application of visual attributes using the current scheme.
+    ///
+    /// Call this after changing the color scheme via `set_scheme` so the
+    /// document immediately reflects the new colors without requiring a
+    /// keystroke to trigger `didProcessEditing`.
+    pub fn reapply(&self, storage: &NSTextStorage) {
+        let text = storage.string().to_string();
+        if text.is_empty() {
+            return;
+        }
+        let cursor_pos = self.ivars().cursor_pos.get();
+        let runs = {
+            let spans = self.ivars().spans.borrow();
+            compute_attribute_runs(&text, &spans, cursor_pos)
+        };
+        let scheme = self.ivars().scheme.get();
+        self.ivars().applying.set(true);
+        apply_attribute_runs(storage, &text, &runs, &scheme);
+        self.ivars().applying.set(false);
+    }
 }

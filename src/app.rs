@@ -150,6 +150,24 @@ define_class!(
             }
         }
 
+        // ── Appearance ─────────────────────────────────────────────────────
+
+        #[unsafe(method(applyLightMode:))]
+        fn apply_light_mode(&self, _sender: &AnyObject) {
+            self.apply_scheme(ColorScheme::light());
+        }
+
+        #[unsafe(method(applyDarkMode:))]
+        fn apply_dark_mode(&self, _sender: &AnyObject) {
+            self.apply_scheme(ColorScheme::dark());
+        }
+
+        #[unsafe(method(applySystemMode:))]
+        fn apply_system_mode(&self, _sender: &AnyObject) {
+            let scheme = detect_scheme(&NSApplication::sharedApplication(self.mtm()));
+            self.apply_scheme(scheme);
+        }
+
         // ── Heading shortcuts ──────────────────────────────────────────────
 
         #[unsafe(method(applyH1:))]
@@ -209,6 +227,18 @@ impl AppDelegate {
     fn new(mtm: MainThreadMarker) -> Retained<Self> {
         let this = Self::alloc(mtm).set_ivars(AppDelegateIvars::default());
         unsafe { msg_send![super(this), init] }
+    }
+
+    /// Switch the color scheme and immediately re-render the document.
+    fn apply_scheme(&self, scheme: ColorScheme) {
+        if let Some(ed) = self.ivars().editor_delegate.get() {
+            ed.set_scheme(scheme);
+            if let Some(tv) = self.ivars().text_view.get() {
+                if let Some(storage) = unsafe { tv.textStorage() } {
+                    ed.reapply(&storage);
+                }
+            }
+        }
     }
 
     /// Compute and apply the horizontal text container inset so the text
