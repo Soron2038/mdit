@@ -72,6 +72,37 @@ fn heading_gets_large_font() {
 }
 
 #[test]
+fn list_item_marker_styled() {
+    let text = "- Item one\n- Item two";
+    let spans = parse(text);
+    let runs = compute_attribute_runs(text, &spans, None);
+    let marker = runs.iter().find(|r| r.attrs.contains(&TextAttribute::ListMarker));
+    assert!(marker.is_some(), "expected a ListMarker attribute run for list item");
+}
+
+#[test]
+fn blockquote_gets_bar_attribute() {
+    let text = "> quoted text";
+    let spans = parse(text);
+    let runs = compute_attribute_runs(text, &spans, None);
+    assert!(
+        runs.iter().any(|r| r.attrs.contains(&TextAttribute::BlockquoteBar)),
+        "expected BlockquoteBar for blockquote"
+    );
+}
+
+#[test]
+fn table_gets_monospace() {
+    let text = "| A | B |\n|---|---|\n| 1 | 2 |";
+    let spans = parse(text);
+    let runs = compute_attribute_runs(text, &spans, None);
+    assert!(
+        runs.iter().any(|r| r.attrs.contains(&TextAttribute::Monospace)),
+        "expected Monospace fallback for table"
+    );
+}
+
+#[test]
 fn h1_prefix_hidden_outside_cursor() {
     let text = "# Heading";
     let spans = parse(text);

@@ -142,7 +142,47 @@ fn collect_runs(
                 attrs: AttributeSet::for_blockquote(),
             });
         }
-        // For container nodes (Paragraph, List, Item, …) just recurse
+        NodeKind::List => {
+            // Container only — visual structure comes from Item rendering.
+            for child in &span.children {
+                collect_runs(text, child, cursor_pos, runs);
+            }
+        }
+        NodeKind::Item => {
+            // The bullet/number marker (e.g. "- " or "1. ") is implicit in the
+            // source but has no child node.  Its range is from item start to
+            // the start of the first child (usually a Paragraph).
+            let marker_end = span
+                .children
+                .first()
+                .map(|c| c.source_range.0)
+                .unwrap_or(start + 2)
+                .min(end);
+            if start < marker_end {
+                runs.push(AttributeRun {
+                    range: (start, marker_end),
+                    attrs: AttributeSet::for_list_marker(),
+                });
+            }
+            for child in &span.children {
+                collect_runs(text, child, cursor_pos, runs);
+            }
+        }
+        NodeKind::Table => {
+            // Phase-1 fallback: render the whole table block as monospace.
+            runs.push(AttributeRun {
+                range: (start, end),
+                attrs: AttributeSet::for_code_block(),
+            });
+        }
+        NodeKind::Footnote => {
+            // Footnote definitions/references rendered in muted link color.
+            runs.push(AttributeRun {
+                range: (start, end),
+                attrs: AttributeSet::for_link(),
+            });
+        }
+        // For remaining container nodes (Paragraph, Text, …) just recurse.
         _ => {
             for child in &span.children {
                 collect_runs(text, child, cursor_pos, runs);
