@@ -1,4 +1,4 @@
-use std::cell::OnceCell;
+use std::cell::{Cell, OnceCell, RefCell};
 
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, ProtocolObject};
@@ -14,10 +14,19 @@ use objc2_foundation::{
     NSPoint, NSRange, NSRect, NSSize, NSString,
 };
 
-use mdit::editor::text_storage::MditEditorDelegate;
+use mdit::editor::document_state::DocumentState;
 use mdit::menu::build_main_menu;
 use mdit::ui::appearance::ColorScheme;
+use mdit::ui::path_bar::PathBar;
+use mdit::ui::tab_bar::{tab_label, TabBar};
 use mdit::ui::toolbar::FloatingToolbar;
+
+// ---------------------------------------------------------------------------
+// Layout constants
+// ---------------------------------------------------------------------------
+
+const TAB_H: f64 = 32.0;
+const PATH_H: f64 = 22.0;
 
 // ---------------------------------------------------------------------------
 // App Delegate
@@ -25,10 +34,12 @@ use mdit::ui::toolbar::FloatingToolbar;
 
 #[derive(Default)]
 struct AppDelegateIvars {
-    window: OnceCell<Retained<NSWindow>>,
-    editor_delegate: OnceCell<Retained<MditEditorDelegate>>,
-    toolbar: OnceCell<FloatingToolbar>,
-    text_view: OnceCell<Retained<NSTextView>>,
+    window:       OnceCell<Retained<NSWindow>>,
+    toolbar:      OnceCell<FloatingToolbar>,
+    tab_bar:      OnceCell<TabBar>,
+    path_bar:     OnceCell<PathBar>,
+    tabs:         RefCell<Vec<DocumentState>>,
+    active_index: Cell<usize>,
 }
 
 define_class!(
@@ -49,42 +60,49 @@ define_class!(
                 .downcast::<NSApplication>()
                 .unwrap();
 
-            // Detect system appearance before the window appears so the
-            // correct color scheme is active from the very first keystroke.
             let initial_scheme = detect_scheme(&app);
-
-            let (window, text_view, editor_delegate) = create_window(mtm);
+            let window = create_window(mtm);
 
             window.setDelegate(Some(ProtocolObject::from_ref(self)));
-
-            // Install the main menu before the window appears.
             build_main_menu(&app, mtm);
-
             window.center();
             window.makeKeyAndOrderFront(None);
 
-            // Wire AppDelegate as text view delegate for selection tracking.
-            text_view.setDelegate(Some(ProtocolObject::from_ref(self)));
+            let content = unsafe { window.contentView().unwrap() };
+            let bounds = content.bounds();
+            let w = bounds.size.width;
+            let h = bounds.size.height;
 
-            // Create floating toolbar and wire its buttons to this AppDelegate.
-            // Safety: self outlives the toolbar (both stored in AppDelegateIvars).
-            let target: &AnyObject = unsafe { &*(self as *const AppDelegate as *const AnyObject) };
+            // TabBar at the top
+            let tab_bar = TabBar::new(mtm, w);
+            tab_bar.view().setFrame(NSRect::new(
+                NSPoint::new(0.0, h - TAB_H),
+                NSSize::new(w, TAB_H),
+            ));
+            content.addSubview(tab_bar.view());
+
+            // PathBar at the bottom
+            let path_bar = PathBar::new(mtm, w);
+            content.addSubview(path_bar.view());
+
+            // Floating toolbar
+            let target: &AnyObject = unsafe {
+                &*(self as *const AppDelegate as *const AnyObject)
+            };
             let toolbar = FloatingToolbar::new(mtm, target);
 
             self.ivars().window.set(window).unwrap();
-            let _ = self.ivars().editor_delegate.set(editor_delegate);
+            let _ = self.ivars().tab_bar.set(tab_bar);
+            let _ = self.ivars().path_bar.set(path_bar);
             let _ = self.ivars().toolbar.set(toolbar);
-            let _ = self.ivars().text_view.set(text_view);
 
             app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
             #[allow(deprecated)]
             app.activateIgnoringOtherApps(true);
 
-            // Apply initial colour scheme (sets background + text attributes).
-            // Must happen after ivars are set so apply_scheme can access text_view.
+            // First empty tab (sets scheme and inset)
+            self.add_empty_tab();
             self.apply_scheme(initial_scheme);
-
-            // Apply initial text container inset for centred layout.
             self.update_text_container_inset();
         }
 
@@ -102,6 +120,30 @@ define_class!(
 
         #[unsafe(method(windowDidResize:))]
         fn window_did_resize(&self, _notification: &NSNotification) {
+            let Some(win) = self.ivars().window.get() else { return };
+            let bounds = unsafe { win.contentView().unwrap().bounds() };
+            let w = bounds.size.width;
+            let h = bounds.size.height;
+
+            if let Some(tb) = self.ivars().tab_bar.get() {
+                tb.view().setFrame(NSRect::new(
+                    NSPoint::new(0.0, h - TAB_H),
+                    NSSize::new(w, TAB_H),
+                ));
+            }
+            if let Some(pb) = self.ivars().path_bar.get() {
+                pb.view().setFrame(NSRect::new(
+                    NSPoint::new(0.0, 0.0),
+                    NSSize::new(w, PATH_H),
+                ));
+            }
+            let frame = self.content_frame();
+            let idx = self.ivars().active_index.get();
+            let tabs = self.ivars().tabs.borrow();
+            if let Some(t) = tabs.get(idx) {
+                t.scroll_view.setFrame(frame);
+            }
+            drop(tabs);
             self.update_text_container_inset();
         }
     }
@@ -111,8 +153,8 @@ define_class!(
         /// File > Export as PDF…  (Cmd+Shift+E)
         #[unsafe(method(exportPDF:))]
         fn export_pdf_action(&self, _sender: &AnyObject) {
-            if let Some(tv) = self.ivars().text_view.get() {
-                mdit::export::pdf::export_pdf(tv);
+            if let Some(tv) = self.active_text_view() {
+                mdit::export::pdf::export_pdf(&tv);
             }
         }
 
@@ -120,36 +162,36 @@ define_class!(
 
         #[unsafe(method(applyBold:))]
         fn apply_bold(&self, _sender: &AnyObject) {
-            if let Some(tv) = self.ivars().text_view.get() {
-                wrap_selection(tv, "**", "**");
+            if let Some(tv) = self.active_text_view() {
+                wrap_selection(&tv, "**", "**");
             }
         }
 
         #[unsafe(method(applyItalic:))]
         fn apply_italic(&self, _sender: &AnyObject) {
-            if let Some(tv) = self.ivars().text_view.get() {
-                wrap_selection(tv, "_", "_");
+            if let Some(tv) = self.active_text_view() {
+                wrap_selection(&tv, "_", "_");
             }
         }
 
         #[unsafe(method(applyInlineCode:))]
         fn apply_inline_code(&self, _sender: &AnyObject) {
-            if let Some(tv) = self.ivars().text_view.get() {
-                wrap_selection(tv, "`", "`");
+            if let Some(tv) = self.active_text_view() {
+                wrap_selection(&tv, "`", "`");
             }
         }
 
         #[unsafe(method(applyLink:))]
         fn apply_link(&self, _sender: &AnyObject) {
-            if let Some(tv) = self.ivars().text_view.get() {
-                wrap_selection(tv, "[", "]()");
+            if let Some(tv) = self.active_text_view() {
+                wrap_selection(&tv, "[", "]()");
             }
         }
 
         #[unsafe(method(applyStrikethrough:))]
         fn apply_strikethrough(&self, _sender: &AnyObject) {
-            if let Some(tv) = self.ivars().text_view.get() {
-                wrap_selection(tv, "~~", "~~");
+            if let Some(tv) = self.active_text_view() {
+                wrap_selection(&tv, "~~", "~~");
             }
         }
 
@@ -175,22 +217,22 @@ define_class!(
 
         #[unsafe(method(applyH1:))]
         fn apply_h1(&self, _sender: &AnyObject) {
-            if let Some(tv) = self.ivars().text_view.get() {
-                prepend_line(tv, "# ");
+            if let Some(tv) = self.active_text_view() {
+                prepend_line(&tv, "# ");
             }
         }
 
         #[unsafe(method(applyH2:))]
         fn apply_h2(&self, _sender: &AnyObject) {
-            if let Some(tv) = self.ivars().text_view.get() {
-                prepend_line(tv, "## ");
+            if let Some(tv) = self.active_text_view() {
+                prepend_line(&tv, "## ");
             }
         }
 
         #[unsafe(method(applyH3:))]
         fn apply_h3(&self, _sender: &AnyObject) {
-            if let Some(tv) = self.ivars().text_view.get() {
-                prepend_line(tv, "### ");
+            if let Some(tv) = self.active_text_view() {
+                prepend_line(&tv, "### ");
             }
         }
     }
@@ -232,28 +274,125 @@ impl AppDelegate {
         unsafe { msg_send![super(this), init] }
     }
 
-    /// Switch the color scheme and immediately re-render the document.
+    /// Frame for the active NSScrollView (between TabBar and PathBar).
+    fn content_frame(&self) -> NSRect {
+        let Some(win) = self.ivars().window.get() else { return NSRect::ZERO };
+        let bounds = unsafe { win.contentView().unwrap().bounds() };
+        let h = bounds.size.height;
+        let w = bounds.size.width;
+        NSRect::new(
+            NSPoint::new(0.0, PATH_H),
+            NSSize::new(w, (h - TAB_H - PATH_H).max(0.0)),
+        )
+    }
+
+    /// Active text view for formatting actions.
+    fn active_text_view(&self) -> Option<Retained<NSTextView>> {
+        let idx = self.ivars().active_index.get();
+        let tabs = self.ivars().tabs.borrow();
+        tabs.get(idx).map(|t| t.text_view.clone())
+    }
+
+    /// Rebuild tab bar buttons.
+    fn rebuild_tab_bar(&self) {
+        let Some(_win) = self.ivars().window.get() else { return };
+        let Some(tab_bar) = self.ivars().tab_bar.get() else { return };
+        let mtm = self.mtm();
+        let active = self.ivars().active_index.get();
+        let target: &AnyObject = unsafe {
+            &*(self as *const AppDelegate as *const AnyObject)
+        };
+        let labels: Vec<(String, bool)> = {
+            let tabs = self.ivars().tabs.borrow();
+            tabs.iter().enumerate().map(|(i, t)| {
+                let url = t.url.borrow();
+                (tab_label(url.as_deref(), t.is_dirty.get()), i == active)
+            }).collect()
+        };
+        tab_bar.rebuild(mtm, &labels, target);
+    }
+
+    /// Switch to tab `index`.
+    fn switch_to_tab(&self, index: usize) {
+        let Some(win) = self.ivars().window.get() else { return };
+        let content = unsafe { win.contentView().unwrap() };
+
+        // Remove old scroll view
+        {
+            let tabs = self.ivars().tabs.borrow();
+            let old = self.ivars().active_index.get();
+            if let Some(t) = tabs.get(old) {
+                t.scroll_view.removeFromSuperview();
+            }
+        }
+
+        self.ivars().active_index.set(index);
+
+        // Insert new scroll view
+        let frame = self.content_frame();
+        {
+            let tabs = self.ivars().tabs.borrow();
+            if let Some(t) = tabs.get(index) {
+                t.scroll_view.setFrame(frame);
+                content.addSubview(&t.scroll_view);
+            }
+        }
+
+        // Update path bar
+        if let Some(pb) = self.ivars().path_bar.get() {
+            let tabs = self.ivars().tabs.borrow();
+            let url = tabs.get(index).and_then(|t| t.url.borrow().clone());
+            pb.update(url.as_deref());
+        }
+
+        self.rebuild_tab_bar();
+        self.update_text_container_inset();
+        if let Some(tb) = self.ivars().toolbar.get() {
+            tb.hide();
+        }
+    }
+
+    /// Create a new empty tab and activate it.
+    fn add_empty_tab(&self) {
+        let mtm = self.mtm();
+        let scheme = {
+            let tabs = self.ivars().tabs.borrow();
+            tabs.first()
+                .map(|t| t.editor_delegate.scheme())
+                .unwrap_or_else(ColorScheme::light)
+        };
+        let frame = self.content_frame();
+        let tab = DocumentState::new_empty(mtm, scheme, frame);
+        // Wire delegate so textViewDidChangeSelection: fires
+        tab.text_view.setDelegate(Some(ProtocolObject::from_ref(self)));
+        let new_idx = {
+            let mut tabs = self.ivars().tabs.borrow_mut();
+            tabs.push(tab);
+            tabs.len() - 1
+        };
+        self.switch_to_tab(new_idx);
+    }
+
+    /// Switch the color scheme and immediately re-render all documents.
     fn apply_scheme(&self, scheme: ColorScheme) {
-        if let Some(ed) = self.ivars().editor_delegate.get() {
-            ed.set_scheme(scheme);
-            if let Some(tv) = self.ivars().text_view.get() {
-                // Update the text view background explicitly — the semantic
-                // NSColor::textBackgroundColor() only adapts to the *system*
-                // appearance, not our app-level scheme switch.
-                let (r, g, b) = scheme.background;
-                let bg = NSColor::colorWithRed_green_blue_alpha(r, g, b, 1.0);
-                tv.setBackgroundColor(&bg);
-                if let Some(storage) = unsafe { tv.textStorage() } {
-                    ed.reapply(&storage);
+        let tabs = self.ivars().tabs.borrow();
+        let active = self.ivars().active_index.get();
+        for (i, tab) in tabs.iter().enumerate() {
+            tab.editor_delegate.set_scheme(scheme);
+            let (r, g, b) = scheme.background;
+            let bg = NSColor::colorWithRed_green_blue_alpha(r, g, b, 1.0);
+            tab.scroll_view.setBackgroundColor(&bg);
+            tab.text_view.setBackgroundColor(&bg);
+            if i == active {
+                if let Some(storage) = unsafe { tab.text_view.textStorage() } {
+                    tab.editor_delegate.reapply(&storage);
                 }
             }
         }
     }
 
-    /// Compute and apply the horizontal text container inset so the text
-    /// area is centred with a maximum width of ~700 pt.
+    /// Compute and apply the horizontal text container inset for the active tab.
     fn update_text_container_inset(&self) {
-        let Some(tv) = self.ivars().text_view.get() else { return };
         let Some(win) = self.ivars().window.get() else { return };
         let win_width = win.frame().size.width;
         let max_text_width = 700.0_f64;
@@ -263,7 +402,11 @@ impl AppDelegate {
         } else {
             min_padding
         };
-        tv.setTextContainerInset(NSSize::new(h_inset, 40.0));
+        let idx = self.ivars().active_index.get();
+        let tabs = self.ivars().tabs.borrow();
+        if let Some(t) = tabs.get(idx) {
+            t.text_view.setTextContainerInset(NSSize::new(h_inset, 40.0));
+        }
     }
 }
 
@@ -299,12 +442,10 @@ fn prepend_line(tv: &NSTextView, prefix: &str) {
 }
 
 // ---------------------------------------------------------------------------
-// Window + Text View
+// Window creation
 // ---------------------------------------------------------------------------
 
-fn create_window(
-    mtm: MainThreadMarker,
-) -> (Retained<NSWindow>, Retained<NSTextView>, Retained<MditEditorDelegate>) {
+fn create_window(mtm: MainThreadMarker) -> Retained<NSWindow> {
     let style = NSWindowStyleMask::Titled
         | NSWindowStyleMask::Closable
         | NSWindowStyleMask::Miniaturizable
@@ -324,14 +465,7 @@ fn create_window(
     window.setTitle(ns_string!("mdit"));
     window.setContentMinSize(NSSize::new(500.0, 400.0));
 
-    // Add scroll view + text view (backed by MditTextStorage) as content
-    let content = window.contentView().expect("window must have content view");
-    let bounds = content.bounds();
-    let (scroll_view, text_view, editor_delegate) =
-        mdit::editor::text_view::create_editor_view(mtm, bounds);
-    content.addSubview(&scroll_view);
-
-    (window, text_view, editor_delegate)
+    window
 }
 
 // ---------------------------------------------------------------------------
