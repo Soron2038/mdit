@@ -5,3 +5,4 @@ pub mod apply;
 pub mod cursor_tracker;
 pub mod image_handler;
 pub mod math_view;
+pub mod document_state;

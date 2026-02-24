@@ -95,6 +95,11 @@ impl MditEditorDelegate {
         unsafe { msg_send![super(this), init] }
     }
 
+    /// Get the current color scheme.
+    pub fn scheme(&self) -> ColorScheme {
+        self.ivars().scheme.get()
+    }
+
     /// Update the color scheme (e.g. on appearance change).
     pub fn set_scheme(&self, scheme: ColorScheme) {
         self.ivars().scheme.set(scheme);
