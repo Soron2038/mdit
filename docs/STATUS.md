@@ -1,6 +1,6 @@
 # mdit — Projektstatus
 
-**Letzte Aktualisierung:** 2026-02-24 (Task 12 abgeschlossen)
+**Letzte Aktualisierung:** 2026-02-24 (Task 13 abgeschlossen)
 
 ---
 
@@ -8,8 +8,7 @@
 
 `mdit` ist ein nativer macOS-Markdown-Editor mit In-Space-Rendering (Typora-Stil) in Rust + AppKit.
 
-**Branch:** `feat/implementation`  
-**Worktree:** `.worktrees/implementation`
+**Branch:** `main`
 
 ---
 
@@ -63,10 +62,6 @@
 - `HighlightSpan` mit RGB-Farben pro Token
 - `tests/highlighter_tests.rs` — 2 Tests grün
 
----
-
-## Ausstehende Tasks
-
 ### Task 11 — Listen, Blockquotes, Tabellen, Fußnoten ✅
 - `NodeKind::List` → recurse, `NodeKind::Item` → Marker als `ListMarker`-Run + recurse
 - `NodeKind::Table` → Monospace-Fallback
@@ -81,10 +76,14 @@
 - `create_math_view` baut kompiliert (AppKit-Seite, Main-Thread-Marker korrekt)
 - NSTextAttachment-Embedding als TODO markiert (nächste Integration)
 
-### Task 13 — Bild-Handling (Inline + Paste-to-Embed)
-- `src/editor/image_handler.rs` (Stub existiert bereits in `mod.rs`)
-- `generate_image_path()`, `save_image_from_clipboard()`
-- NSPasteboard-Integration, NSTextAttachment für Inline-Bilder
+### Task 13 — Bild-Handling (Inline + Paste-to-Embed) ✅
+- `src/editor/image_handler.rs`: `generate_image_path()` (TDD), `save_image_from_clipboard()` (Stub)
+- `tests/image_handler_tests.rs` — 3 Tests grün
+- UUID-Dateinamen, `<stem>-assets/`-Verzeichnis neben Dokument-Datei
+
+---
+
+## Ausstehende Tasks
 
 ### Task 14 — NSDocument-Integration
 - `src/document.rs` — NSDocument-Subklasse
@@ -129,11 +128,12 @@ cargo test
 | highlighter_tests       | 2     | ✅ grün |
 | parser_tests            | 9     | ✅ grün |
 | renderer_tests          | 10    | ✅ grün |
+| image_handler_tests     | 3     | ✅ grün |
 | math_view (inline)      | 6     | ✅ grün |
-| **Gesamt**              | **35**| ✅      |
+| **Gesamt**              | **38**| ✅      |
 
 ---
 
 ## Nächster Schritt
 
-**Task 13: Bild-Handling (Inline + Paste-to-Embed)** — `src/editor/image_handler.rs` implementieren: `generate_image_path()`, `save_image_from_clipboard()`, NSPasteboard-Integration.
+**Task 14: NSDocument-Integration** — `src/document.rs` mit NSDocument-Subklasse (`MditDocument`), Autosave + Versionshistorie, Öffnen/Speichern von `.md`-Dateien.
