@@ -1,6 +1,6 @@
 # mdit — Projektstatus
 
-**Letzte Aktualisierung:** 2026-02-24 (Task 19 abgeschlossen — Phase 1 complete)
+**Letzte Aktualisierung:** 2026-02-24 (Phase 1.x Bugfixes abgeschlossen — alle 3 Bugs gefixt)
 
 ---
 
@@ -129,9 +129,29 @@
 - Startup-Ziel < 200ms: Lean binary erfüllt die Anforderung 
 - Bugfix: `unsafe impl AppDelegate` → `impl AppDelegate` in `define_class!`
 
+## Erledigte Tasks — Phase 1.x Bugfixes
+
+**Plan:** `docs/plans/2026-02-24-bugfix-phase1x.md`
+
+### BUG-1 — Dark Mode: Hintergrund bleibt hell ✅
+- `apply_scheme()` ruft jetzt `tv.setBackgroundColor()` mit explizitem sRGB-Wert aus `scheme.background`
+- Startup: `apply_scheme(initial_scheme)` ersetzt `editor_delegate.set_scheme()` — Background wird auch bei dunklem System-Start korrekt gesetzt
+- **Commits:** `3ce2a81`
+
+### BUG-2 — Setext-Heading zerstört Kursiv-Darstellung ✅
+- Renderer erkennt ATX- vs. Setext-Headings via `text[start] == '#'`
+- Setext: Content erhält Heading-Schriftgrösse, Unterstreichungszeile wird als Syntax-Marker (ausgeblendet/sichtbar) behandelt
+- 3 neue Renderer-Tests (13 gesamt)
+- **Commits:** `af84f88`
+
+### BUG-3 — Toolbar-Buttons sind No-Ops ✅
+- `FloatingToolbar::new(mtm, target)` verdrahtet jeden Button via `NSControl::setTarget/setAction`
+- `BTN_LABELS` ersetzt durch `BTN_ACTIONS` (Label + CStr-Selektor)
+- **Commits:** `69576e3`
+
 ## Ausstehende Tasks
 
-*Keine — Phase 1 abgeschlossen.*
+*Keine — Phase 1.x Bugfixes abgeschlossen.*
 
 ---
 
@@ -159,4 +179,4 @@ cargo test
 
 ## Nächster Schritt
 
-*Phase 1 abgeschlossen. Nächste Phase: Phase 1.x (Focus-Mode, erweiterte Features).*
+*Phase 1.x Bugfixes abgeschlossen (3/3). Nächste Phase: Focus-Mode, erweiterte Features.*
