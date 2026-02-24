@@ -103,14 +103,45 @@ fn collect_runs(
             runs.push(AttributeRun { range: (end - 1, end), attrs: syn });
         }
         NodeKind::Heading { level } => {
-            // "# content" — prefix_len = level + 1 (e.g. "# " = 2)
-            let prefix_len = (*level as usize + 1).min(end - start);
-            runs.push(AttributeRun { range: (start, start + prefix_len), attrs: syn });
-            if start + prefix_len < end {
-                runs.push(AttributeRun {
-                    range: (start + prefix_len, end),
-                    attrs: AttributeSet::for_heading(*level),
-                });
+            // Distinguish ATX headings ("# …") from setext headings ("---" underline style).
+            let is_atx = text.as_bytes().get(start).copied() == Some(b'#');
+
+            if is_atx {
+                // ATX: the "# " (or "## " etc.) prefix is hidden as a syntax marker.
+                let prefix_len = (*level as usize + 1).min(end - start);
+                runs.push(AttributeRun { range: (start, start + prefix_len), attrs: syn });
+                if start + prefix_len < end {
+                    runs.push(AttributeRun {
+                        range: (start + prefix_len, end),
+                        attrs: AttributeSet::for_heading(*level),
+                    });
+                }
+            } else {
+                // Setext: the underline line (--- / ===) is on the last line of the span.
+                // Everything before the final newline is heading content; the last line
+                // is a syntax marker (shown/hidden based on cursor position).
+                let span_slice = &text[start..end];
+                if let Some(nl_rel) = span_slice.rfind('\n') {
+                    let nl_abs = start + nl_rel;
+                    if start < nl_abs {
+                        runs.push(AttributeRun {
+                            range: (start, nl_abs),
+                            attrs: AttributeSet::for_heading(*level),
+                        });
+                    }
+                    if nl_abs < end {
+                        runs.push(AttributeRun {
+                            range: (nl_abs, end),
+                            attrs: syn, // shown/hidden based on cursor position
+                        });
+                    }
+                } else {
+                    // No newline in span (degenerate) — treat whole range as content.
+                    runs.push(AttributeRun {
+                        range: (start, end),
+                        attrs: AttributeSet::for_heading(*level),
+                    });
+                }
             }
         }
         NodeKind::Strikethrough => {

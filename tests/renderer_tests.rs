@@ -116,3 +116,52 @@ fn h1_prefix_hidden_outside_cursor() {
     let heading_run = runs.iter().find(|r| r.attrs.font_size() > 20.0);
     assert!(heading_run.is_some(), "heading content should have large font");
 }
+
+// ── Setext heading tests ──────────────────────────────────────────────────────
+
+#[test]
+fn setext_h2_does_not_hide_content_prefix() {
+    // "kursiv\n-\n" is a setext H2. Content bytes 0..6 ("kursiv") must have
+    // heading font size and must NOT be hidden — there is no '#' prefix to hide.
+    let text = "kursiv\n-\n";
+    let spans = parse(text);
+    let runs = compute_attribute_runs(text, &spans, None);
+
+    let content_run = runs.iter().find(|r| r.range == (0, 6));
+    assert!(content_run.is_some(),
+        "expected a run for 'kursiv' at (0, 6); runs: {:?}", runs.iter().map(|r| r.range).collect::<Vec<_>>());
+    let content_run = content_run.unwrap();
+    assert!(content_run.attrs.font_size() > 20.0,
+        "setext H2 content must have heading font size, got {}", content_run.attrs.font_size());
+    assert!(!content_run.attrs.contains(&TextAttribute::Hidden),
+        "setext H2 content must not be hidden");
+}
+
+#[test]
+fn setext_h2_underline_is_syntax_marker() {
+    // The underline region ("\n-", starting at byte 6) must be a syntax marker.
+    // With cursor=None, syntax markers are hidden.
+    let text = "kursiv\n-\n";
+    let spans = parse(text);
+    let runs = compute_attribute_runs(text, &spans, None);
+
+    let underline_run = runs.iter()
+        .find(|r| r.range.0 == 6)
+        .expect("expected a run starting at byte 6 (underline '\\n-')");
+    assert!(underline_run.attrs.contains(&TextAttribute::Hidden),
+        "setext underline must be hidden when cursor is outside");
+}
+
+#[test]
+fn atx_heading_prefix_still_hidden() {
+    // Regression: ATX headings must still hide the '## ' prefix (3 bytes for H2).
+    let text = "## Hello\n";
+    let spans = parse(text);
+    let runs = compute_attribute_runs(text, &spans, None);
+
+    let prefix_run = runs.iter().find(|r| r.range == (0, 3));
+    assert!(prefix_run.is_some(),
+        "expected ATX prefix run at (0, 3); runs: {:?}", runs.iter().map(|r| r.range).collect::<Vec<_>>());
+    assert!(prefix_run.unwrap().attrs.contains(&TextAttribute::Hidden),
+        "ATX prefix '## ' must be hidden");
+}
