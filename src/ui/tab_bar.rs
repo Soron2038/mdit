@@ -38,12 +38,15 @@ use objc2_app_kit::{
 use objc2_foundation::{MainThreadMarker, NSPoint, NSRect, NSSize, NSString};
 
 pub const HEIGHT: f64 = 32.0;
-const BTN_H: f64 = 22.0;
+const BTN_H:   f64 = 22.0;
 const CLOSE_W: f64 = 18.0;
 const TITLE_W: f64 = 100.0;
-const TAB_W: f64 = TITLE_W + CLOSE_W;
-const PLUS_W: f64 = 28.0;
-const PAD: f64 = 4.0;
+const PLUS_W:  f64 = 28.0;
+const PAD:     f64 = 4.0;
+/// Width of each left-side tool button (Open / Save).
+const TOOL_W:  f64 = 46.0;
+/// Extra gap between tool buttons and the first tab.
+const TOOL_SEP: f64 = 6.0;
 
 pub struct TabBar {
     container: Retained<NSView>,
@@ -78,6 +81,30 @@ impl TabBar {
         let y = (HEIGHT - BTN_H) / 2.0;
         let mut x = PAD;
 
+        // ── Tool buttons (Open / Save) ──────────────────────────────────
+        let open_btn = make_button(
+            mtm,
+            "Open",
+            NSRect::new(NSPoint::new(x, y), NSSize::new(TOOL_W, BTN_H)),
+            unsafe { Sel::register(c"openDocument:") },
+            target,
+            -3,
+        );
+        self.container.addSubview(&open_btn);
+        x += TOOL_W + PAD;
+
+        let save_btn = make_button(
+            mtm,
+            "Save",
+            NSRect::new(NSPoint::new(x, y), NSSize::new(TOOL_W, BTN_H)),
+            unsafe { Sel::register(c"saveDocument:") },
+            target,
+            -4,
+        );
+        self.container.addSubview(&save_btn);
+        x += TOOL_W + PAD + TOOL_SEP;
+
+        // ── Tab buttons ─────────────────────────────────────────────────
         for (i, (label, _active)) in tabs.iter().enumerate() {
             // Title button
             let title_btn = make_button(

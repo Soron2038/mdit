@@ -9,30 +9,47 @@ use objc2_foundation::{MainThreadMarker, NSPoint, NSRect, NSSize, NSString};
 
 use crate::ui::tab_bar::path_label;
 
-const HEIGHT: f64 = 22.0;
+pub const HEIGHT: f64 = 22.0;
+const LEFT_PAD: f64 = 8.0;
+/// Visible text-field height — kept smaller than HEIGHT so the text sits
+/// vertically centred within the bar.
+const FIELD_H: f64 = 16.0;
 
 pub struct PathBar {
-    field: Retained<NSTextField>,
+    container: Retained<NSView>,
+    field:     Retained<NSTextField>,
 }
 
 impl PathBar {
     pub fn new(mtm: MainThreadMarker, width: f64) -> Self {
-        let frame = NSRect::new(
-            NSPoint::new(0.0, 0.0),
-            NSSize::new(width, HEIGHT),
+        // Transparent container that spans the full bottom strip.
+        let container = NSView::initWithFrame(
+            NSView::alloc(mtm),
+            NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(width, HEIGHT)),
         );
-        let field = NSTextField::initWithFrame(NSTextField::alloc(mtm), frame);
+
+        // Text field, inset from the left and centred vertically.
+        let v_off = (HEIGHT - FIELD_H) / 2.0;
+        let field = NSTextField::initWithFrame(
+            NSTextField::alloc(mtm),
+            NSRect::new(
+                NSPoint::new(LEFT_PAD, v_off),
+                NSSize::new(width - LEFT_PAD - 4.0, FIELD_H),
+            ),
+        );
         field.setEditable(false);
         field.setSelectable(false);
         field.setBordered(false);
         field.setDrawsBackground(false);
         unsafe {
-            let font = NSFont::systemFontOfSize_weight(11.0, 0.0); // Regular
+            let font = NSFont::systemFontOfSize_weight(11.0, 0.0);
             field.setFont(Some(&font));
             field.setTextColor(Some(&NSColor::secondaryLabelColor()));
         }
         field.setStringValue(&NSString::from_str("Untitled — not saved"));
-        Self { field }
+
+        container.addSubview(&field);
+        Self { container, field }
     }
 
     /// Update the displayed path.
@@ -41,9 +58,21 @@ impl PathBar {
         self.field.setStringValue(&NSString::from_str(&label));
     }
 
-    pub fn view(&self) -> &NSTextField {
-        &self.field
+    /// Returns the container view to be added to the window's content view.
+    pub fn view(&self) -> &NSView {
+        &self.container
     }
 
-    pub const HEIGHT: f64 = HEIGHT;
+    /// Call from `windowDidResize:` to keep the bar flush-left and full-width.
+    pub fn set_width(&self, width: f64) {
+        self.container.setFrame(NSRect::new(
+            NSPoint::new(0.0, 0.0),
+            NSSize::new(width, HEIGHT),
+        ));
+        let v_off = (HEIGHT - FIELD_H) / 2.0;
+        self.field.setFrame(NSRect::new(
+            NSPoint::new(LEFT_PAD, v_off),
+            NSSize::new(width - LEFT_PAD - 4.0, FIELD_H),
+        ));
+    }
 }
