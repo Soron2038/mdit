@@ -5,14 +5,16 @@ use objc2::runtime::ProtocolObject;
 use objc2::{define_class, msg_send, DefinedClass, MainThreadOnly};
 use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSApplicationDelegate,
-    NSBackingStoreType, NSWindow, NSWindowDelegate, NSWindowStyleMask,
+    NSBackingStoreType, NSTextDelegate, NSTextView, NSTextViewDelegate,
+    NSWindow, NSWindowDelegate, NSWindowStyleMask,
 };
 use objc2_foundation::{
     ns_string, MainThreadMarker, NSNotification, NSObject, NSObjectProtocol,
-    NSPoint, NSRect, NSSize,
+    NSPoint, NSRange, NSRect, NSSize,
 };
 
 use mdit::editor::text_storage::MditEditorDelegate;
+use mdit::ui::toolbar::FloatingToolbar;
 
 // ---------------------------------------------------------------------------
 // App Delegate
@@ -23,6 +25,9 @@ struct AppDelegateIvars {
     window: OnceCell<Retained<NSWindow>>,
     #[allow(dead_code)]
     editor_delegate: OnceCell<Retained<MditEditorDelegate>>,
+    toolbar: OnceCell<FloatingToolbar>,
+    #[allow(dead_code)]
+    text_view: OnceCell<Retained<NSTextView>>,
 }
 
 define_class!(
@@ -43,14 +48,22 @@ define_class!(
                 .downcast::<NSApplication>()
                 .unwrap();
 
-            let (window, editor_delegate) = create_window(mtm);
+            let (window, text_view, editor_delegate) = create_window(mtm);
 
             window.setDelegate(Some(ProtocolObject::from_ref(self)));
             window.center();
             window.makeKeyAndOrderFront(None);
 
+            // Wire AppDelegate as text view delegate for selection tracking.
+            text_view.setDelegate(Some(ProtocolObject::from_ref(self)));
+
+            // Create floating toolbar (hidden until text is selected).
+            let toolbar = FloatingToolbar::new(mtm);
+
             self.ivars().window.set(window).unwrap();
             let _ = self.ivars().editor_delegate.set(editor_delegate);
+            let _ = self.ivars().toolbar.set(toolbar);
+            let _ = self.ivars().text_view.set(text_view);
 
             app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
             #[allow(deprecated)]
@@ -66,7 +79,37 @@ define_class!(
     unsafe impl NSWindowDelegate for AppDelegate {
         #[unsafe(method(windowWillClose:))]
         fn window_will_close(&self, _notification: &NSNotification) {
-            unsafe { NSApplication::sharedApplication(self.mtm()).terminate(None) };
+            NSApplication::sharedApplication(self.mtm()).terminate(None);
+        }
+    }
+
+    // ── NSTextViewDelegate: show/hide toolbar on selection ────────────────
+    unsafe impl NSTextDelegate for AppDelegate {}
+
+    unsafe impl NSTextViewDelegate for AppDelegate {
+        #[unsafe(method(textViewDidChangeSelection:))]
+        fn text_view_did_change_selection(&self, notification: &NSNotification) {
+            let Some(obj) = notification.object() else { return };
+            let Ok(tv) = obj.downcast::<NSTextView>() else { return };
+
+            let sel_range: NSRange = unsafe { msg_send![&*tv, selectedRange] };
+
+            let Some(toolbar) = self.ivars().toolbar.get() else { return };
+
+            if sel_range.length > 0 {
+                // firstRectForCharacterRange:actualRange: returns screen coords.
+                let null_ptr = std::ptr::null_mut::<NSRange>();
+                let rect: NSRect = unsafe {
+                    msg_send![
+                        &*tv,
+                        firstRectForCharacterRange: sel_range,
+                        actualRange: null_ptr
+                    ]
+                };
+                toolbar.show_near_rect(rect);
+            } else {
+                toolbar.hide();
+            }
         }
     }
 );
@@ -84,7 +127,7 @@ impl AppDelegate {
 
 fn create_window(
     mtm: MainThreadMarker,
-) -> (Retained<NSWindow>, Retained<MditEditorDelegate>) {
+) -> (Retained<NSWindow>, Retained<NSTextView>, Retained<MditEditorDelegate>) {
     let style = NSWindowStyleMask::Titled
         | NSWindowStyleMask::Closable
         | NSWindowStyleMask::Miniaturizable
@@ -107,11 +150,11 @@ fn create_window(
     // Add scroll view + text view (backed by MditTextStorage) as content
     let content = window.contentView().expect("window must have content view");
     let bounds = content.bounds();
-    let (scroll_view, editor_delegate) =
+    let (scroll_view, text_view, editor_delegate) =
         mdit::editor::text_view::create_editor_view(mtm, bounds);
     content.addSubview(&scroll_view);
 
-    (window, editor_delegate)
+    (window, text_view, editor_delegate)
 }
 
 // ---------------------------------------------------------------------------

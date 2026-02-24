@@ -4,6 +4,7 @@ use objc2::MainThreadOnly;
 use objc2_app_kit::{
     NSAutoresizingMaskOptions, NSColor, NSFont, NSScrollView, NSTextView,
 };
+pub use objc2_app_kit::NSTextView as NSTextViewType;
 use objc2_foundation::{MainThreadMarker, NSPoint, NSRect, NSSize};
 
 use super::text_storage::MditEditorDelegate;
@@ -13,12 +14,13 @@ use super::text_storage::MditEditorDelegate;
 /// A `MditEditorDelegate` is wired to the text view's storage so that
 /// every character edit triggers a Markdown re-parse.
 ///
-/// Returns `(scroll_view, delegate)` — the caller must keep the delegate
-/// alive for as long as the text view exists.
+/// Returns `(scroll_view, text_view, delegate)` — the caller must keep the
+/// delegate alive for as long as the text view exists.  The `text_view`
+/// reference is needed to set an NSTextViewDelegate.
 pub fn create_editor_view(
     mtm: MainThreadMarker,
     frame: NSRect,
-) -> (Retained<NSScrollView>, Retained<MditEditorDelegate>) {
+) -> (Retained<NSScrollView>, Retained<NSTextView>, Retained<MditEditorDelegate>) {
     // 1. Scroll view
     let scroll = NSScrollView::initWithFrame(NSScrollView::alloc(mtm), frame);
     scroll.setHasVerticalScroller(true);
@@ -55,5 +57,5 @@ pub fn create_editor_view(
 
     scroll.setDocumentView(Some(&*text_view));
 
-    (scroll, delegate)
+    (scroll, text_view, delegate)
 }
