@@ -213,6 +213,26 @@ define_class!(
             self.apply_scheme(scheme);
         }
 
+        // ── Tab management ─────────────────────────────────────────────────
+
+        #[unsafe(method(switchToTab:))]
+        fn switch_to_tab_action(&self, sender: &AnyObject) {
+            let idx = unsafe { objc2_app_kit::NSControl::tag(
+                &*(sender as *const _ as *const objc2_app_kit::NSControl)
+            )};
+            if idx >= 0 {
+                self.switch_to_tab(idx as usize);
+            }
+        }
+
+        #[unsafe(method(closeTab:))]
+        fn close_tab_action(&self, sender: &AnyObject) {
+            let idx = unsafe { objc2_app_kit::NSControl::tag(
+                &*(sender as *const _ as *const objc2_app_kit::NSControl)
+            ) as usize };
+            self.close_tab(idx);
+        }
+
         // ── Heading shortcuts ──────────────────────────────────────────────
 
         #[unsafe(method(applyH1:))]
@@ -391,6 +411,74 @@ impl AppDelegate {
         }
     }
 
+    /// Close tab at `index` — dirty-check, then remove (or clear if last).
+    fn close_tab(&self, index: usize) {
+        let is_dirty = {
+            let tabs = self.ivars().tabs.borrow();
+            tabs.get(index).map(|t| t.is_dirty.get()).unwrap_or(false)
+        };
+        let filename = {
+            let tabs = self.ivars().tabs.borrow();
+            tabs.get(index)
+                .and_then(|t| t.url.borrow().as_deref()
+                    .and_then(|p| p.file_name())
+                    .map(|n| n.to_string_lossy().into_owned()))
+                .unwrap_or_else(|| "Untitled".to_string())
+        };
+
+        if is_dirty {
+            match show_save_alert(&filename, self.mtm()) {
+                SaveChoice::Save => self.perform_save(Some(index)),
+                SaveChoice::DontSave => {}
+                SaveChoice::Cancel => return,
+            }
+        }
+
+        // Last tab → only clear content, don’t remove tab
+        if self.ivars().tabs.borrow().len() == 1 {
+            let tabs = self.ivars().tabs.borrow();
+            if let Some(t) = tabs.first() {
+                unsafe {
+                    if let Some(storage) = t.text_view.textStorage() {
+                        let full = NSRange { location: 0, length: storage.length() };
+                        let empty = NSString::from_str("");
+                        storage.replaceCharactersInRange_withString(full, &empty);
+                    }
+                }
+                *t.url.borrow_mut() = None;
+                t.is_dirty.set(false);
+            }
+            drop(tabs);
+            self.rebuild_tab_bar();
+            if let Some(pb) = self.ivars().path_bar.get() {
+                pb.update(None);
+            }
+            return;
+        }
+
+        // Remove scroll view from superview
+        {
+            let tabs = self.ivars().tabs.borrow();
+            if let Some(t) = tabs.get(index) {
+                t.scroll_view.removeFromSuperview();
+            }
+        }
+        self.ivars().tabs.borrow_mut().remove(index);
+
+        // Correct active index
+        let new_idx = {
+            let len = self.ivars().tabs.borrow().len();
+            let cur = self.ivars().active_index.get();
+            if index <= cur && cur > 0 { cur - 1 } else { cur.min(len - 1) }
+        };
+        self.switch_to_tab(new_idx);
+    }
+
+    /// Save tab at `index` (None = active). Full implementation in Task 8.
+    fn perform_save(&self, _index: Option<usize>) {
+        // TODO: implemented in Task 8
+    }
+
     /// Compute and apply the horizontal text container inset for the active tab.
     fn update_text_container_inset(&self) {
         let Some(win) = self.ivars().window.get() else { return };
@@ -407,6 +495,32 @@ impl AppDelegate {
         if let Some(t) = tabs.get(idx) {
             t.text_view.setTextContainerInset(NSSize::new(h_inset, 40.0));
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Dirty-check dialog
+// ---------------------------------------------------------------------------
+
+enum SaveChoice { Save, DontSave, Cancel }
+
+fn show_save_alert(filename: &str, mtm: MainThreadMarker) -> SaveChoice {
+    use objc2_app_kit::NSAlert;
+    let alert = NSAlert::new(mtm);
+    alert.setMessageText(&NSString::from_str(
+        &format!("Do you want to save changes to \"{}\"?", filename)
+    ));
+    alert.setInformativeText(&NSString::from_str(
+        "Your changes will be lost if you don't save them."
+    ));
+    alert.addButtonWithTitle(&NSString::from_str("Save"));        // 1000
+    alert.addButtonWithTitle(&NSString::from_str("Don't Save"));  // 1001
+    alert.addButtonWithTitle(&NSString::from_str("Cancel"));      // 1002
+    let response = unsafe { alert.runModal() };
+    match response {
+        1000 => SaveChoice::Save,
+        1001 => SaveChoice::DontSave,
+        _ => SaveChoice::Cancel,
     }
 }
 
