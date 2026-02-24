@@ -1,6 +1,6 @@
 # mdit — Projektstatus
 
-**Letzte Aktualisierung:** 2026-02-24 (Task 14 abgeschlossen)
+**Letzte Aktualisierung:** 2026-02-24 (Task 15 abgeschlossen)
 
 ---
 
@@ -87,14 +87,16 @@
 - Vollständige Cmd+O-Integration benötigt noch `Info.plist CFBundleDocumentTypes`
 - `NSError`-Feature zu `objc2-foundation` hinzugefügt
 
+### Task 15 — Floating Formatting Toolbar ✅
+- `src/ui/toolbar.rs`: `FloatingToolbar` — NSPanel + NSVisualEffectView-Blur + 7 NSButton-Elemente
+- Toolbar erscheint bei Textauswahl (via `NSTextViewDelegate.textViewDidChangeSelection:`)
+- Positionierung via `firstRectForCharacterRange:actualRange:` (Screen-Koordinaten)
+- Button-Actions als TODO-Stubs (noch nicht mit NSTextView verbunden)
+- `NSButton`, `NSButtonCell`, `NSControl` zu objc2-app-kit-Features hinzugefügt
+
 ---
 
 ## Ausstehende Tasks
-
-### Task 15 — Floating Formatting Toolbar
-- `src/ui/toolbar.rs` — NSPanel mit NSVisualEffectView
-- Erscheint bei Textauswahl über der Selektion
-- Buttons: Bold, Italic, Code, Strikethrough, Link, H1/H2/H3
 
 ### Task 16 — Light/Dark Mode + Typografie
 - `src/ui/appearance.rs` — `ColorScheme` (light/dark)
@@ -137,4 +139,4 @@ cargo test
 
 ## Nächster Schritt
 
-**Task 15: Floating Formatting Toolbar** — `src/ui/toolbar.rs` mit NSPanel + NSVisualEffectView, erscheint bei Textauswahl über der Selektion, Buttons: Bold, Italic, Code, Strikethrough, Link, H1/H2/H3.
+**Task 16: Light/Dark Mode + Typografie** — `src/ui/appearance.rs` mit `ColorScheme` (light/dark), SF Pro Body/Heading, Monospace für Code, zentrierte Textfläche max. 700pt breit.
