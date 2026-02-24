@@ -66,8 +66,10 @@ define_class!(
             // Wire AppDelegate as text view delegate for selection tracking.
             text_view.setDelegate(Some(ProtocolObject::from_ref(self)));
 
-            // Create floating toolbar (hidden until text is selected).
-            let toolbar = FloatingToolbar::new(mtm);
+            // Create floating toolbar and wire its buttons to this AppDelegate.
+            // Safety: self outlives the toolbar (both stored in AppDelegateIvars).
+            let target: &AnyObject = unsafe { &*(self as *const AppDelegate as *const AnyObject) };
+            let toolbar = FloatingToolbar::new(mtm, target);
 
             self.ivars().window.set(window).unwrap();
             let _ = self.ivars().editor_delegate.set(editor_delegate);
