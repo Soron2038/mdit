@@ -163,6 +163,13 @@ fn apply_attr_set(
 /// Processes Bold + Italic + Monospace + FontSize together so they don't
 /// overwrite each other when applied one by one.
 fn build_font(attrs: &AttributeSet) -> Retained<NSFont> {
+    // Hidden characters (syntax markers) must not take up layout space.
+    // Setting the font to near-zero eliminates the visual indentation caused
+    // by invisible '# ' / '*' / '**' characters still occupying their advance width.
+    if attrs.contains(&TextAttribute::Hidden) {
+        return unsafe { NSFont::systemFontOfSize_weight(0.001, NSFontWeightRegular) };
+    }
+
     let size = attrs.font_size(); // returns f64, default 16.0
     let bold = attrs.contains(&TextAttribute::Bold);
     let italic = attrs.contains(&TextAttribute::Italic);
