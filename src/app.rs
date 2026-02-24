@@ -6,7 +6,7 @@ use objc2::{define_class, msg_send, DefinedClass, MainThreadOnly};
 use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSApplicationDelegate,
     NSAppearanceNameAqua, NSAppearanceNameDarkAqua,
-    NSBackingStoreType, NSTextDelegate, NSTextView, NSTextViewDelegate,
+    NSBackingStoreType, NSColor, NSTextDelegate, NSTextView, NSTextViewDelegate,
     NSWindow, NSWindowDelegate, NSWindowStyleMask,
 };
 use objc2_foundation::{
@@ -55,9 +55,6 @@ define_class!(
 
             let (window, text_view, editor_delegate) = create_window(mtm);
 
-            // Override the default light scheme if the system is dark.
-            editor_delegate.set_scheme(initial_scheme);
-
             window.setDelegate(Some(ProtocolObject::from_ref(self)));
 
             // Install the main menu before the window appears.
@@ -80,6 +77,10 @@ define_class!(
             app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
             #[allow(deprecated)]
             app.activateIgnoringOtherApps(true);
+
+            // Apply initial colour scheme (sets background + text attributes).
+            // Must happen after ivars are set so apply_scheme can access text_view.
+            self.apply_scheme(initial_scheme);
 
             // Apply initial text container inset for centred layout.
             self.update_text_container_inset();
@@ -234,6 +235,12 @@ impl AppDelegate {
         if let Some(ed) = self.ivars().editor_delegate.get() {
             ed.set_scheme(scheme);
             if let Some(tv) = self.ivars().text_view.get() {
+                // Update the text view background explicitly — the semantic
+                // NSColor::textBackgroundColor() only adapts to the *system*
+                // appearance, not our app-level scheme switch.
+                let (r, g, b) = scheme.background;
+                let bg = NSColor::colorWithRed_green_blue_alpha(r, g, b, 1.0);
+                tv.setBackgroundColor(&bg);
                 if let Some(storage) = unsafe { tv.textStorage() } {
                     ed.reapply(&storage);
                 }

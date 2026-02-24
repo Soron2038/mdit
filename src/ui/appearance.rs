@@ -106,4 +106,19 @@ mod tests {
         let b = a; // copy
         assert_eq!(a.text, b.text);
     }
+
+    #[test]
+    fn dark_background_differs_from_light() {
+        let dark = ColorScheme::dark();
+        let light = ColorScheme::light();
+        assert_ne!(dark.background, light.background);
+        // Dark background must be darker than 0.5 luminance on all channels.
+        let (r, g, b) = dark.background;
+        assert!(r < 0.5 && g < 0.5 && b < 0.5,
+            "dark bg should be dark, got: {:?}", dark.background);
+        // Light background must be lighter.
+        let (r, g, b) = light.background;
+        assert!(r > 0.5 && g > 0.5 && b > 0.5,
+            "light bg should be light, got: {:?}", light.background);
+    }
 }

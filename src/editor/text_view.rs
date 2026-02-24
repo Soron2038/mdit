@@ -43,7 +43,10 @@ pub fn create_editor_view(
     };
     text_view.setFont(Some(&body_font));
     text_view.setTextColor(Some(&NSColor::labelColor()));
-    text_view.setBackgroundColor(&NSColor::textBackgroundColor());
+    // Use an explicit sRGB colour matching ColorScheme::light().background so that
+    // apply_scheme() can override it consistently for any scheme, including dark mode.
+    let initial_bg = NSColor::colorWithRed_green_blue_alpha(0.98, 0.98, 0.98, 1.0);
+    text_view.setBackgroundColor(&initial_bg);
     text_view.setAutomaticQuoteSubstitutionEnabled(false);
     text_view.setAutomaticDashSubstitutionEnabled(false);
     text_view.setAutoresizingMask(
