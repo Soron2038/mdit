@@ -1,7 +1,7 @@
 use std::cell::OnceCell;
 
 use objc2::rc::Retained;
-use objc2::runtime::ProtocolObject;
+use objc2::runtime::{AnyObject, ProtocolObject};
 use objc2::{define_class, msg_send, DefinedClass, MainThreadOnly};
 use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSApplicationDelegate,
@@ -11,10 +11,11 @@ use objc2_app_kit::{
 };
 use objc2_foundation::{
     ns_string, MainThreadMarker, NSArray, NSNotification, NSObject, NSObjectProtocol,
-    NSPoint, NSRange, NSRect, NSSize,
+    NSPoint, NSRange, NSRect, NSSize, NSString,
 };
 
 use mdit::editor::text_storage::MditEditorDelegate;
+use mdit::menu::build_main_menu;
 use mdit::ui::appearance::ColorScheme;
 use mdit::ui::toolbar::FloatingToolbar;
 
@@ -58,6 +59,10 @@ define_class!(
             editor_delegate.set_scheme(initial_scheme);
 
             window.setDelegate(Some(ProtocolObject::from_ref(self)));
+
+            // Install the main menu before the window appears.
+            build_main_menu(&app, mtm);
+
             window.center();
             window.makeKeyAndOrderFront(None);
 
@@ -95,6 +100,77 @@ define_class!(
         #[unsafe(method(windowDidResize:))]
         fn window_did_resize(&self, _notification: &NSNotification) {
             self.update_text_container_inset();
+        }
+    }
+
+    // ── Action methods ─────────────────────────────────────────────────────
+    impl AppDelegate {
+        /// File > Export as PDF…  (Cmd+Shift+E)
+        #[unsafe(method(exportPDF:))]
+        fn export_pdf_action(&self, _sender: &AnyObject) {
+            if let Some(tv) = self.ivars().text_view.get() {
+                mdit::export::pdf::export_pdf(tv);
+            }
+        }
+
+        // ── Inline formatting ──────────────────────────────────────────────
+
+        #[unsafe(method(applyBold:))]
+        fn apply_bold(&self, _sender: &AnyObject) {
+            if let Some(tv) = self.ivars().text_view.get() {
+                wrap_selection(tv, "**", "**");
+            }
+        }
+
+        #[unsafe(method(applyItalic:))]
+        fn apply_italic(&self, _sender: &AnyObject) {
+            if let Some(tv) = self.ivars().text_view.get() {
+                wrap_selection(tv, "_", "_");
+            }
+        }
+
+        #[unsafe(method(applyInlineCode:))]
+        fn apply_inline_code(&self, _sender: &AnyObject) {
+            if let Some(tv) = self.ivars().text_view.get() {
+                wrap_selection(tv, "`", "`");
+            }
+        }
+
+        #[unsafe(method(applyLink:))]
+        fn apply_link(&self, _sender: &AnyObject) {
+            if let Some(tv) = self.ivars().text_view.get() {
+                wrap_selection(tv, "[", "]()");
+            }
+        }
+
+        #[unsafe(method(applyStrikethrough:))]
+        fn apply_strikethrough(&self, _sender: &AnyObject) {
+            if let Some(tv) = self.ivars().text_view.get() {
+                wrap_selection(tv, "~~", "~~");
+            }
+        }
+
+        // ── Heading shortcuts ──────────────────────────────────────────────
+
+        #[unsafe(method(applyH1:))]
+        fn apply_h1(&self, _sender: &AnyObject) {
+            if let Some(tv) = self.ivars().text_view.get() {
+                prepend_line(tv, "# ");
+            }
+        }
+
+        #[unsafe(method(applyH2:))]
+        fn apply_h2(&self, _sender: &AnyObject) {
+            if let Some(tv) = self.ivars().text_view.get() {
+                prepend_line(tv, "## ");
+            }
+        }
+
+        #[unsafe(method(applyH3:))]
+        fn apply_h3(&self, _sender: &AnyObject) {
+            if let Some(tv) = self.ivars().text_view.get() {
+                prepend_line(tv, "### ");
+            }
         }
     }
 
@@ -150,6 +226,37 @@ impl AppDelegate {
         };
         tv.setTextContainerInset(NSSize::new(h_inset, 40.0));
     }
+}
+
+// ---------------------------------------------------------------------------
+// Formatting helpers
+// ---------------------------------------------------------------------------
+
+/// Replace the current NSTextView selection with `prefix + selected + suffix`.
+///
+/// Uses `insertText:replacementRange:` so the edit is registered with undo.
+fn wrap_selection(tv: &NSTextView, prefix: &str, suffix: &str) {
+    let range: NSRange = unsafe { msg_send![tv, selectedRange] };
+    let Some(storage) = (unsafe { tv.textStorage() }) else { return };
+    let selected: Retained<NSString> = storage.string().substringWithRange(range);
+    let combined = format!("{}{}{}", prefix, selected, suffix);
+    let ns = NSString::from_str(&combined);
+    unsafe { msg_send![tv, insertText: &*ns, replacementRange: range] }
+}
+
+/// Insert `prefix` at the beginning of the line that contains the caret.
+///
+/// Works on the NSString level so it correctly handles multi-byte content.
+fn prepend_line(tv: &NSTextView, prefix: &str) {
+    let caret: NSRange = unsafe { msg_send![tv, selectedRange] };
+    let Some(storage) = (unsafe { tv.textStorage() }) else { return };
+    let ns_str = storage.string();
+    // NSString.lineRangeForRange: gives us the UTF-16 range of the whole line.
+    let point = NSRange { location: caret.location, length: 0 };
+    let line_range: NSRange = ns_str.lineRangeForRange(point);
+    let insert_at = NSRange { location: line_range.location, length: 0 };
+    let ns = NSString::from_str(prefix);
+    unsafe { msg_send![tv, insertText: &*ns, replacementRange: insert_at] }
 }
 
 // ---------------------------------------------------------------------------
