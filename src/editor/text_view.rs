@@ -1,23 +1,142 @@
+use std::cell::RefCell;
+
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
-use objc2::MainThreadOnly;
+use objc2::{define_class, msg_send, DefinedClass, MainThreadOnly};
 use objc2_app_kit::{
-    NSAutoresizingMaskOptions, NSColor, NSFont, NSFontWeightRegular, NSScrollView, NSTextView,
+    NSAutoresizingMaskOptions, NSColor, NSFont, NSFontWeightRegular, NSRectFill, NSScrollView,
+    NSTextView,
 };
-pub use objc2_app_kit::NSTextView as NSTextViewType;
-use objc2_foundation::{MainThreadMarker, NSPoint, NSRect, NSSize};
+use objc2_foundation::{MainThreadMarker, NSObjectProtocol, NSPoint, NSRect, NSSize};
 
 use super::text_storage::MditEditorDelegate;
 use crate::ui::appearance::ColorScheme;
 
-/// Build an NSScrollView containing an NSTextView.
+// ---------------------------------------------------------------------------
+// MditTextView — NSTextView subclass that draws H1/H2 separator lines
+// ---------------------------------------------------------------------------
+
+#[doc(hidden)]
+pub struct MditTextViewIvars {
+    /// Retained reference to the editor delegate so `drawRect:` can read
+    /// the current heading separator positions without extra wiring.
+    delegate: RefCell<Option<Retained<MditEditorDelegate>>>,
+}
+
+define_class!(
+    #[unsafe(super = NSTextView)]
+    #[thread_kind = MainThreadOnly]
+    #[ivars = MditTextViewIvars]
+    pub struct MditTextView;
+
+    unsafe impl NSObjectProtocol for MditTextView {}
+
+    impl MditTextView {
+        /// After the standard text view draw pass, overlay 1px separator lines
+        /// above every H1/H2 heading that has content before it.
+        #[unsafe(method(drawRect:))]
+        fn draw_rect(&self, dirty_rect: NSRect) {
+            let _: () = unsafe { msg_send![super(self), drawRect: dirty_rect] };
+            self.draw_heading_separators();
+        }
+    }
+);
+
+impl MditTextView {
+    fn new(mtm: MainThreadMarker, frame: NSRect) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(MditTextViewIvars {
+            delegate: RefCell::new(None),
+        });
+        unsafe { msg_send![super(this), initWithFrame: frame] }
+    }
+
+    /// Store a reference to the editor delegate so heading positions are
+    /// accessible during `drawRect:`.
+    pub fn set_editor_delegate(&self, delegate: Retained<MditEditorDelegate>) {
+        *self.ivars().delegate.borrow_mut() = Some(delegate);
+    }
+
+    fn draw_heading_separators(&self) {
+        let delegate_ref = self.ivars().delegate.borrow();
+        let delegate = match delegate_ref.as_ref() {
+            Some(d) => d,
+            None => return,
+        };
+        let positions = delegate.heading_sep_positions();
+        if positions.is_empty() {
+            return;
+        }
+
+        let layout_manager = match unsafe { self.layoutManager() } {
+            Some(lm) => lm,
+            None => return,
+        };
+        let text_container = match unsafe { self.textContainer() } {
+            Some(tc) => tc,
+            None => return,
+        };
+
+        let tc_origin = self.textContainerOrigin();
+        let container_size = text_container.containerSize();
+        let x_start = tc_origin.x;
+        let x_end = x_start + container_size.width;
+
+        // The content-before check is performed once at attribute-application
+        // time (in apply_attribute_runs), so every position in this list needs
+        // a separator line — no String allocation required at draw time.
+        let sep_color = NSColor::separatorColor();
+        sep_color.setFill();
+
+        for &utf16_pos in &positions {
+            // Map the heading character index to a glyph index.
+            let glyph_idx: usize = unsafe {
+                msg_send![&*layout_manager, glyphIndexForCharacterAtIndex: utf16_pos]
+            };
+            if glyph_idx == usize::MAX {
+                continue; // NSNotFound — layout not yet complete
+            }
+
+            // Get the bounding rect of the heading's first line fragment.
+            let null_ptr = std::ptr::null_mut::<objc2_foundation::NSRange>();
+            let frag_rect: NSRect = unsafe {
+                msg_send![
+                    &*layout_manager,
+                    lineFragmentRectForGlyphAtIndex: glyph_idx,
+                    effectiveRange: null_ptr
+                ]
+            };
+            if frag_rect.size.height == 0.0 {
+                continue; // layout rect not yet available
+            }
+
+            // Position the line in the paragraphSpacingBefore space (20pt added
+            // in apply.rs), centred at spacing_before / 2 = 10pt above the
+            // top of the heading's first line fragment.
+            let y = frag_rect.origin.y + tc_origin.y - 10.0;
+
+            // Draw as a filled 0.5pt rect (= 1 physical pixel on Retina).
+            let line_rect = NSRect::new(
+                NSPoint::new(x_start, y - 0.25),
+                NSSize::new(x_end - x_start, 0.5),
+            );
+            NSRectFill(line_rect);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Public factory
+// ---------------------------------------------------------------------------
+
+/// Build an NSScrollView containing a `MditTextView`.
 ///
-/// A `MditEditorDelegate` is wired to the text view's storage so that
-/// every character edit triggers a Markdown re-parse.
+/// A `MditEditorDelegate` is wired to the text view's storage for re-parse on
+/// edit, and also stored inside `MditTextView` so `drawRect:` can read heading
+/// positions.  The returned `Retained<MditEditorDelegate>` provides a
+/// convenient handle for external callers (e.g. to change the colour scheme);
+/// the view holds its own strong reference, so the caller's handle is optional.
 ///
-/// Returns `(scroll_view, text_view, delegate)` — the caller must keep the
-/// delegate alive for as long as the text view exists.  The `text_view`
-/// reference is needed to set an NSTextViewDelegate.
+/// The `text_view` reference is needed to set an `NSTextViewDelegate`.
 pub fn create_editor_view(
     mtm: MainThreadMarker,
     frame: NSRect,
@@ -33,37 +152,46 @@ pub fn create_editor_view(
         NSSize::new(content_size.width, content_size.height),
     );
 
-    // 2. Standard NSTextView (uses default NSTextStorage internally)
-    let text_view = NSTextView::initWithFrame(NSTextView::alloc(mtm), text_rect);
+    // 2. MditTextView (NSTextView subclass with separator-line drawing)
+    let mdit_tv = MditTextView::new(mtm, text_rect);
 
     // Basic appearance — SF Pro body, semantic background color.
-    text_view.setRichText(false);
+    mdit_tv.setRichText(false);
     let body_font = unsafe {
         NSFont::systemFontOfSize_weight(16.0, NSFontWeightRegular)
     };
-    text_view.setFont(Some(&body_font));
-    text_view.setTextColor(Some(&NSColor::labelColor()));
+    mdit_tv.setFont(Some(&body_font));
+    mdit_tv.setTextColor(Some(&NSColor::labelColor()));
     // Use an explicit sRGB colour matching ColorScheme::light().background so that
     // apply_scheme() can override it consistently for any scheme, including dark mode.
     let initial_bg = NSColor::colorWithRed_green_blue_alpha(0.98, 0.98, 0.98, 1.0);
-    text_view.setBackgroundColor(&initial_bg);
-    text_view.setAutomaticQuoteSubstitutionEnabled(false);
-    text_view.setAutomaticDashSubstitutionEnabled(false);
-    text_view.setAutoresizingMask(
+    mdit_tv.setBackgroundColor(&initial_bg);
+    mdit_tv.setAutomaticQuoteSubstitutionEnabled(false);
+    mdit_tv.setAutomaticDashSubstitutionEnabled(false);
+    mdit_tv.setAutoresizingMask(
         NSAutoresizingMaskOptions::ViewWidthSizable
             | NSAutoresizingMaskOptions::ViewHeightSizable,
     );
     // Initial padding — app.rs will tune this dynamically on window resize.
-    text_view.setTextContainerInset(NSSize::new(40.0, 40.0));
+    mdit_tv.setTextContainerInset(NSSize::new(40.0, 40.0));
 
     // 3. Wire our delegate to the text view's storage for re-parse on edit.
     //    Default to light scheme; app.rs overrides after appearance detection.
     let delegate = MditEditorDelegate::new(mtm, ColorScheme::light());
-    if let Some(storage) = unsafe { text_view.textStorage() } {
+    if let Some(storage) = unsafe { mdit_tv.textStorage() } {
         storage.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
     }
 
-    scroll.setDocumentView(Some(&*text_view));
+    // 4. Store the delegate reference in MditTextView so drawRect: can read
+    //    heading positions without extra indirection.
+    mdit_tv.set_editor_delegate(delegate.clone());
+
+    scroll.setDocumentView(Some(&*mdit_tv));
+
+    // Return as NSTextView — the ObjC runtime still dispatches drawRect: to
+    // MditTextView's override.  into_super() is the objc2-sanctioned zero-cost
+    // upcast from a DefinedClass to its immediate superclass.
+    let text_view: Retained<NSTextView> = Retained::into_super(mdit_tv);
 
     (scroll, text_view, delegate)
 }

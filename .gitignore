@@ -1,4 +1,16 @@
-.worktrees/
+# Build artifacts
 target/
 dist/
-*.DS_Store
+
+# macOS
+**/.DS_Store
+
+# Debug symbols (macOS)
+*.dSYM/
+
+# Editor configs
+.vscode/
+.idea/
+
+# Git worktrees
+.worktrees/

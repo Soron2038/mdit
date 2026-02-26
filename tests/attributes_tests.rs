@@ -47,3 +47,21 @@ fn plain_has_no_attributes() {
     let attrs = AttributeSet::plain();
     assert!(attrs.attrs().is_empty());
 }
+
+#[test]
+fn h1_gets_heading_separator() {
+    let attrs = AttributeSet::for_heading(1);
+    assert!(attrs.contains(&TextAttribute::HeadingSeparator));
+}
+
+#[test]
+fn h2_gets_heading_separator() {
+    let attrs = AttributeSet::for_heading(2);
+    assert!(attrs.contains(&TextAttribute::HeadingSeparator));
+}
+
+#[test]
+fn h3_does_not_get_heading_separator() {
+    let attrs = AttributeSet::for_heading(3);
+    assert!(!attrs.contains(&TextAttribute::HeadingSeparator));
+}

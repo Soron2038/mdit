@@ -14,6 +14,9 @@ pub enum TextAttribute {
     BlockquoteBar,
     Strikethrough,
     LineSpacing(u32), // in tenths of a point (e.g. 96 = 9.6pt)
+    /// Marks an H1/H2 heading paragraph: triggers a 1px separator line drawn
+    /// above the heading (only when content precedes it in the document).
+    HeadingSeparator,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -66,11 +69,15 @@ impl AttributeSet {
             3 => 21,
             _ => 16,
         };
-        Self::new(vec![
+        let mut attrs = vec![
             TextAttribute::Bold,
             TextAttribute::FontSize(size),
             TextAttribute::ForegroundColor("heading"),
-        ])
+        ];
+        if level <= 2 {
+            attrs.push(TextAttribute::HeadingSeparator);
+        }
+        Self::new(attrs)
     }
 
     pub fn for_inline_code() -> Self {

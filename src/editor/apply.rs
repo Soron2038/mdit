@@ -22,6 +22,9 @@ use crate::ui::appearance::ColorScheme;
 
 /// Apply `runs` to `storage`, replacing all previous text attributes.
 ///
+/// Returns the UTF-16 character offsets of all H1/H2 heading paragraph starts,
+/// used by the text view to draw 1px separator lines above headings.
+///
 /// Must be called from the main thread (NSTextStorage is not thread-safe).
 /// Safe to call from within `textStorage:didProcessEditing:` — the
 /// `editing_chars_only` guard in the delegate prevents infinite recursion.
@@ -30,10 +33,10 @@ pub fn apply_attribute_runs(
     text: &str,
     runs: &[AttributeRun],
     scheme: &ColorScheme,
-) {
+) -> Vec<usize> {
     let text_len_u16 = text.encode_utf16().count();
     if text_len_u16 == 0 {
-        return;
+        return Vec::new();
     }
 
     let full_range = NSRange { location: 0, length: text_len_u16 };
@@ -66,6 +69,8 @@ pub fn apply_attribute_runs(
     }
 
     // ── Per-run overrides ─────────────────────────────────────────────────
+    let mut heading_sep_positions: Vec<usize> = Vec::new();
+
     for run in runs {
         let start_u16 = byte_to_utf16(text, run.range.0);
         let end_u16 = byte_to_utf16(text, run.range.1);
@@ -74,7 +79,29 @@ pub fn apply_attribute_runs(
         }
         let range = NSRange { location: start_u16, length: end_u16 - start_u16 };
         apply_attr_set(storage, range, &run.attrs, scheme);
+
+        if run.attrs.contains(&TextAttribute::HeadingSeparator) {
+            // Only add the spacing / record the position when non-whitespace
+            // content precedes this heading.  Checking at attribute-application
+            // time (once per edit) avoids allocating a String on every drawRect:.
+            let has_content_before = !text[..run.range.0].trim().is_empty();
+            if has_content_before {
+                // Add extra space above the heading paragraph so the separator
+                // line has visual breathing room.
+                let heading_style = make_para_style_with_spacing_before(9.6, 20.0);
+                unsafe {
+                    storage.addAttribute_value_range(
+                        NSParagraphStyleAttributeName,
+                        heading_style.as_ref(),
+                        range,
+                    );
+                }
+                heading_sep_positions.push(start_u16);
+            }
+        }
     }
+
+    heading_sep_positions
 }
 
 // ---------------------------------------------------------------------------
@@ -145,11 +172,13 @@ fn apply_attr_set(
                     );
                 }
             }
-            // These attributes are conveyed via color tokens above; no direct
-            // NSAttributedString key needed.
+            // These attributes are conveyed via color tokens above or handled
+            // separately in apply_attribute_runs; no direct NSAttributedString
+            // key needed here.
             TextAttribute::ListMarker
             | TextAttribute::BlockquoteBar
-            | TextAttribute::LineSpacing(_) => {}
+            | TextAttribute::LineSpacing(_)
+            | TextAttribute::HeadingSeparator => {}
         }
     }
 }
@@ -223,6 +252,18 @@ fn make_color((r, g, b): (f64, f64, f64)) -> Retained<NSColor> {
 fn make_para_style(line_spacing: f64) -> Retained<NSMutableParagraphStyle> {
     let style = NSMutableParagraphStyle::new();
     style.setLineSpacing(line_spacing);
+    style
+}
+
+/// Build an `NSMutableParagraphStyle` with both line spacing and extra space
+/// above the paragraph (used for H1/H2 headings to host the separator line).
+fn make_para_style_with_spacing_before(
+    line_spacing: f64,
+    spacing_before: f64,
+) -> Retained<NSMutableParagraphStyle> {
+    let style = NSMutableParagraphStyle::new();
+    style.setLineSpacing(line_spacing);
+    style.setParagraphSpacingBefore(spacing_before);
     style
 }
 

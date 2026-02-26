@@ -165,3 +165,35 @@ fn atx_heading_prefix_still_hidden() {
     assert!(prefix_run.unwrap().attrs.contains(&TextAttribute::Hidden),
         "ATX prefix '## ' must be hidden");
 }
+
+#[test]
+fn atx_h1_content_gets_heading_separator() {
+    // HeadingSeparator must be present on the content run of an ATX H1.
+    // (No content precedes it, but the attribute is unconditionally emitted
+    // by the renderer; the content-before filter lives in apply_attribute_runs.)
+    let text = "# Title\n";
+    let spans = parse(text);
+    let runs = compute_attribute_runs(text, &spans, None);
+    let sep_run = runs.iter().find(|r| r.attrs.contains(&TextAttribute::HeadingSeparator));
+    assert!(sep_run.is_some(), "expected HeadingSeparator on ATX H1 content run");
+}
+
+#[test]
+fn setext_h1_content_gets_heading_separator() {
+    // HeadingSeparator must be present on the content run of a setext H1.
+    let text = "Title\n=====\n";
+    let spans = parse(text);
+    let runs = compute_attribute_runs(text, &spans, None);
+    let sep_run = runs.iter().find(|r| r.attrs.contains(&TextAttribute::HeadingSeparator));
+    assert!(sep_run.is_some(), "expected HeadingSeparator on setext H1 content run");
+}
+
+#[test]
+fn h3_content_does_not_get_heading_separator() {
+    // HeadingSeparator must NOT appear for H3 or below.
+    let text = "### Section\n";
+    let spans = parse(text);
+    let runs = compute_attribute_runs(text, &spans, None);
+    let sep_run = runs.iter().find(|r| r.attrs.contains(&TextAttribute::HeadingSeparator));
+    assert!(sep_run.is_none(), "HeadingSeparator must not appear on H3");
+}

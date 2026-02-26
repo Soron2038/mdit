@@ -25,6 +25,9 @@ pub struct MditEditorDelegateIvars {
     /// Set to `true` while `apply_attribute_runs` is active so that the
     /// attribute-only delegate callbacks it triggers are ignored.
     applying: Cell<bool>,
+    /// UTF-16 character offsets of H1/H2 heading paragraph starts, updated
+    /// after every re-parse. Read by MditTextView to draw separator lines.
+    heading_sep_positions: RefCell<Vec<usize>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -73,8 +76,9 @@ define_class!(
             };
             let scheme = self.ivars().scheme.get();
             self.ivars().applying.set(true);
-            apply_attribute_runs(text_storage, &text, &runs, &scheme);
+            let positions = apply_attribute_runs(text_storage, &text, &runs, &scheme);
             self.ivars().applying.set(false);
+            *self.ivars().heading_sep_positions.borrow_mut() = positions;
         }
     }
 );
@@ -91,6 +95,7 @@ impl MditEditorDelegate {
             cursor_pos: Cell::new(None),
             scheme: Cell::new(scheme),
             applying: Cell::new(false),
+            heading_sep_positions: RefCell::new(Vec::new()),
         });
         unsafe { msg_send![super(this), init] }
     }
@@ -137,7 +142,14 @@ impl MditEditorDelegate {
         };
         let scheme = self.ivars().scheme.get();
         self.ivars().applying.set(true);
-        apply_attribute_runs(storage, &text, &runs, &scheme);
+        let positions = apply_attribute_runs(storage, &text, &runs, &scheme);
         self.ivars().applying.set(false);
+        *self.ivars().heading_sep_positions.borrow_mut() = positions;
+    }
+
+    /// Returns the UTF-16 character offsets of H1/H2 heading paragraph starts.
+    /// Used by `MditTextView` to draw separator lines above headings.
+    pub fn heading_sep_positions(&self) -> Vec<usize> {
+        self.ivars().heading_sep_positions.borrow().clone()
     }
 }
