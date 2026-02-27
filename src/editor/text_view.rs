@@ -35,11 +35,25 @@ define_class!(
     unsafe impl NSObjectProtocol for MditTextView {}
 
     impl MditTextView {
-        /// After the standard text view draw pass, overlay 1px separator lines
-        /// above every H1/H2 heading that has content before it.
+        /// NSTextView calls this BEFORE the layout manager draws glyphs, making
+        /// it the correct place to draw code-block background fills (behind text).
+        #[unsafe(method(drawViewBackgroundInRect:))]
+        fn draw_view_background_in_rect(&self, rect: NSRect) {
+            // Default background fill (editor background color).
+            let _: () = unsafe { msg_send![super(self), drawViewBackgroundInRect: rect] };
+            // Code-block fills go here — drawn after the background clear but
+            // BEFORE NSLayoutManager draws glyphs, so text renders on top.
+            self.draw_code_block_fills();
+        }
+
+        /// After the standard text view draw pass, overlay borders, copy icons,
+        /// and heading separator lines on top of the rendered text.
         #[unsafe(method(drawRect:))]
         fn draw_rect(&self, dirty_rect: NSRect) {
+            // super.drawRect: calls drawViewBackgroundInRect: (our override above)
+            // which draws code-block fills before glyphs are rendered.
             let _: () = unsafe { msg_send![super(self), drawRect: dirty_rect] };
+            // Border strokes + copy icons drawn after glyphs (correct for overlays).
             self.draw_code_blocks();
             self.draw_heading_separators();
         }
@@ -159,33 +173,34 @@ impl MditTextView {
         }
     }
 
-    fn draw_code_blocks(&self) {
-        // Clear previous frame's hit rects.
-        self.ivars().copy_button_rects.borrow_mut().clear();
-
+    /// Shared geometry: maps code block metadata → (block_rect, icon_rect, code_text).
+    /// Called by both draw_code_block_fills() and draw_code_blocks() to avoid
+    /// duplicating the glyph-index lookup logic.
+    fn code_block_rects(&self) -> Vec<(NSRect, NSRect, String)> {
         let delegate_ref = self.ivars().delegate.borrow();
         let delegate = match delegate_ref.as_ref() {
             Some(d) => d,
-            None => return,
+            None => return Vec::new(),
         };
         let infos = delegate.code_block_infos();
         if infos.is_empty() {
-            return;
+            return Vec::new();
         }
 
         let layout_manager = match unsafe { self.layoutManager() } {
             Some(lm) => lm,
-            None => return,
+            None => return Vec::new(),
         };
         let text_container = match unsafe { self.textContainer() } {
             Some(tc) => tc,
-            None => return,
+            None => return Vec::new(),
         };
 
         let tc_origin = self.textContainerOrigin();
         let container_width = text_container.containerSize().width;
         let null_ptr = std::ptr::null_mut::<objc2_foundation::NSRange>();
 
+        let mut result = Vec::new();
         for info in &infos {
             if info.start_utf16 >= info.end_utf16 {
                 continue;
@@ -228,13 +243,39 @@ impl MditTextView {
                 NSSize::new(container_width, block_bottom - block_y),
             );
 
-            // ── Fill background ───────────────────────────────────────────────
+            let icon_x = block_rect.origin.x + block_rect.size.width - 20.0;
+            let icon_y = block_rect.origin.y + 6.0;
+            let icon_rect = NSRect::new(
+                NSPoint::new(icon_x, icon_y),
+                NSSize::new(14.0, 14.0),
+            );
+
+            result.push((block_rect, icon_rect, info.text.clone()));
+        }
+        result
+    }
+
+    /// Draw rounded-rect background fills for all code blocks.
+    /// Called from drawViewBackgroundInRect: — BEFORE glyphs are drawn,
+    /// so the fill is correctly behind the text.
+    fn draw_code_block_fills(&self) {
+        for (block_rect, _, _) in self.code_block_rects() {
             let path = unsafe {
                 NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(block_rect, 6.0, 6.0)
             };
             NSColor::controlBackgroundColor().setFill();
             path.fill();
+        }
+    }
 
+    /// Draw border strokes and copy icons for all code blocks.
+    /// Called from drawRect: AFTER glyphs — correct for overlay rendering.
+    /// Also populates copy_button_rects for mouseDown: hit-testing.
+    fn draw_code_blocks(&self) {
+        // Clear previous frame's hit rects.
+        self.ivars().copy_button_rects.borrow_mut().clear();
+
+        for (block_rect, icon_rect, code_text) in self.code_block_rects() {
             // ── Draw border ───────────────────────────────────────────────────
             let border_path = unsafe {
                 NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(block_rect, 6.0, 6.0)
@@ -243,19 +284,14 @@ impl MditTextView {
             NSColor::separatorColor().setStroke();
             border_path.stroke();
 
-            // ── Draw SF Symbol copy icon (14×14pt, 6pt from bottom-right) ────
-            let icon_x = block_rect.origin.x + block_rect.size.width - 20.0;
-            let icon_y = block_rect.origin.y + 6.0;
-            let icon_rect = NSRect::new(
-                NSPoint::new(icon_x, icon_y),
-                NSSize::new(14.0, 14.0),
-            );
+            // ── Draw SF Symbol copy icon (14×14pt) ────────────────────────────
+            // SF Symbols are template images — they render correctly in both
+            // light and dark mode without explicit tinting via NSColor::set().
             unsafe {
                 let name = NSString::from_str("doc.on.doc");
                 if let Some(icon) = NSImage::imageWithSystemSymbolName_accessibilityDescription(
                     &name, None,
                 ) {
-                    NSColor::secondaryLabelColor().set();
                     icon.drawInRect(icon_rect);
                 }
             }
@@ -263,7 +299,7 @@ impl MditTextView {
             // Store rect for hit-testing in mouseDown:.
             self.ivars().copy_button_rects
                 .borrow_mut()
-                .push((icon_rect, info.text.clone()));
+                .push((icon_rect, code_text));
         }
     }
 }
