@@ -8,9 +8,7 @@ use std::ffi::CStr;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, Sel};
 use objc2::{msg_send, MainThreadOnly};
-use objc2_app_kit::{
-    NSBezelStyle, NSButton, NSButtonType, NSColor, NSControl, NSFont, NSView,
-};
+use objc2_app_kit::{NSBezelStyle, NSButton, NSButtonType, NSColor, NSControl, NSFont, NSView};
 use objc2_foundation::{MainThreadMarker, NSPoint, NSRect, NSSize, NSString};
 
 /// Width of the sidebar column.
@@ -18,7 +16,7 @@ pub const SIDEBAR_W: f64 = 36.0;
 
 const BTN_H: f64 = 26.0;
 const BTN_W: f64 = 32.0;
-const BTN_X: f64 = 2.0;   // left margin within sidebar
+const BTN_X: f64 = 2.0; // left margin within sidebar
 const TOP_PAD: f64 = 8.0;
 const GROUP_GAP: f64 = 8.0;
 
@@ -26,26 +24,26 @@ const GROUP_GAP: f64 = 8.0;
 ///
 /// `start_new_group = true` inserts GROUP_GAP vertical space before this button.
 const BTN_DEFS: &[(&str, &CStr, bool)] = &[
-    ("H1",  c"applyH1:",            false),
-    ("H2",  c"applyH2:",            false),
-    ("H3",  c"applyH3:",            false),
-    ("\u{00B6}", c"applyNormal:",   false),  // ¶ pilcrow = normal/paragraph
-    (">",   c"applyBlockquote:",    false),
-    ("```", c"applyCodeBlock:",     false),
+    ("H1", c"applyH1:", false),
+    ("H2", c"applyH2:", false),
+    ("H3", c"applyH3:", false),
+    ("\u{00B6}", c"applyNormal:", false), // ¶ pilcrow = normal/paragraph
+    (">", c"applyBlockquote:", false),
+    ("```", c"applyCodeBlock:", false),
     // ── inline group ─────────────────────────────────────────────
-    ("B",   c"applyBold:",          true),
-    ("I",   c"applyItalic:",        false),
-    ("`",   c"applyInlineCode:",    false),
-    ("~~",  c"applyStrikethrough:", false),
+    ("B", c"applyBold:", true),
+    ("I", c"applyItalic:", false),
+    ("`", c"applyInlineCode:", false),
+    ("~~", c"applyStrikethrough:", false),
     // ── insert group ─────────────────────────────────────────────
-    ("lnk", c"applyLink:",          true),
-    ("\u{2014}", c"applyHRule:",    false),  // — em-dash as HR symbol
+    ("lnk", c"applyLink:", true),
+    ("\u{2014}", c"applyHRule:", false), // — em-dash as HR symbol
 ];
 
 pub struct FormattingSidebar {
     container: Retained<NSView>,
-    buttons:   Vec<Retained<NSButton>>,
-    border:    Retained<NSView>,
+    buttons: Vec<Retained<NSButton>>,
+    border: Retained<NSView>,
 }
 
 impl FormattingSidebar {
@@ -69,7 +67,7 @@ impl FormattingSidebar {
             );
             btn.setTitle(&NSString::from_str(label));
             btn.setButtonType(NSButtonType::MomentaryPushIn);
-            btn.setBezelStyle(NSBezelStyle::Inline);
+            btn.setBezelStyle(NSBezelStyle::AccessoryBarAction);
             unsafe {
                 NSControl::setTarget(&btn, Some(target));
                 NSControl::setAction(&btn, Some(Sel::register(sel_name)));
@@ -83,15 +81,16 @@ impl FormattingSidebar {
         // ── 1 pt right border ────────────────────────────────────────────────
         let border = NSView::initWithFrame(
             NSView::alloc(mtm),
-            NSRect::new(
-                NSPoint::new(SIDEBAR_W - 1.0, 0.0),
-                NSSize::new(1.0, height),
-            ),
+            NSRect::new(NSPoint::new(SIDEBAR_W - 1.0, 0.0), NSSize::new(1.0, height)),
         );
         border.setWantsLayer(true);
         container.addSubview(&border);
 
-        let s = Self { container, buttons, border };
+        let s = Self {
+            container,
+            buttons,
+            border,
+        };
         s.position_buttons(height);
         s.apply_separator_color();
         s
@@ -120,11 +119,11 @@ impl FormattingSidebar {
     /// Call this once during setup and again whenever the system appearance
     /// changes.
     pub fn apply_separator_color(&self) {
-        if let Some(layer) = unsafe { self.border.layer() } {
-            let color = unsafe { NSColor::separatorColor() };
-            let cg: *mut std::ffi::c_void =
-                unsafe { msg_send![&*color, CGColor] };
-            let _: () = unsafe { msg_send![&*layer, setBackgroundColor: cg] };
+        if let Some(layer) = self.border.layer() {
+            let color = NSColor::separatorColor();
+            let cg: *mut std::ffi::c_void = unsafe { msg_send![&*color, CGColor] };
+            let raw: *const AnyObject = Retained::as_ptr(&layer).cast();
+            let _: () = unsafe { msg_send![raw, setBackgroundColor: cg] };
         }
     }
 

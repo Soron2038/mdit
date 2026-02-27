@@ -4,14 +4,13 @@ use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, ProtocolObject};
 use objc2::{define_class, msg_send, DefinedClass, MainThreadOnly};
 use objc2_app_kit::{
-    NSApplication, NSApplicationActivationPolicy, NSApplicationDelegate,
-    NSAppearanceNameAqua, NSAppearanceNameDarkAqua,
-    NSBackingStoreType, NSColor, NSTextDelegate, NSTextView, NSTextViewDelegate,
-    NSWindow, NSWindowDelegate, NSWindowStyleMask,
+    NSAppearanceNameAqua, NSAppearanceNameDarkAqua, NSApplication, NSApplicationActivationPolicy,
+    NSApplicationDelegate, NSBackingStoreType, NSColor, NSTextDelegate, NSTextView,
+    NSTextViewDelegate, NSWindow, NSWindowDelegate, NSWindowStyleMask,
 };
 use objc2_foundation::{
-    ns_string, MainThreadMarker, NSArray, NSNotification, NSObject, NSObjectProtocol,
-    NSPoint, NSRange, NSRect, NSSize, NSString,
+    ns_string, MainThreadMarker, NSArray, NSNotification, NSObject, NSObjectProtocol, NSPoint,
+    NSRange, NSRect, NSSize, NSString,
 };
 
 use mdit::editor::document_state::DocumentState;
@@ -34,11 +33,11 @@ const PATH_H: f64 = 22.0;
 
 #[derive(Default)]
 struct AppDelegateIvars {
-    window:       OnceCell<Retained<NSWindow>>,
-    sidebar:      OnceCell<FormattingSidebar>,
-    tab_bar:      OnceCell<TabBar>,
-    path_bar:     OnceCell<PathBar>,
-    tabs:         RefCell<Vec<DocumentState>>,
+    window: OnceCell<Retained<NSWindow>>,
+    sidebar: OnceCell<FormattingSidebar>,
+    tab_bar: OnceCell<TabBar>,
+    path_bar: OnceCell<PathBar>,
+    tabs: RefCell<Vec<DocumentState>>,
     active_index: Cell<usize>,
 }
 
@@ -68,7 +67,7 @@ define_class!(
             window.center();
             window.makeKeyAndOrderFront(None);
 
-            let content = unsafe { window.contentView().unwrap() };
+            let content = window.contentView().unwrap();
             let bounds = content.bounds();
             let w = bounds.size.width;
             let h = bounds.size.height;
@@ -128,7 +127,7 @@ define_class!(
         #[unsafe(method(windowDidResize:))]
         fn window_did_resize(&self, _notification: &NSNotification) {
             let Some(win) = self.ivars().window.get() else { return };
-            let bounds = unsafe { win.contentView().unwrap().bounds() };
+            let bounds = win.contentView().unwrap().bounds();
             let w = bounds.size.width;
             let h = bounds.size.height;
 
@@ -235,12 +234,12 @@ define_class!(
             panel.setCanChooseFiles(true);
             panel.setCanChooseDirectories(false);
             panel.setAllowsMultipleSelection(false);
-            let response = unsafe { panel.runModal() };
+            let response = panel.runModal();
             if response != 1 { return; } // NSModalResponseOK = 1
 
-            let ns_url = unsafe { panel.URL() };
+            let ns_url = panel.URL();
             let Some(ns_url) = ns_url else { return };
-            let Some(ns_path) = (unsafe { ns_url.path() }) else { return };
+            let Some(ns_path) = ns_url.path() else { return };
             let path = std::path::PathBuf::from(ns_path.to_string());
 
             // Check if already open
@@ -404,8 +403,10 @@ impl AppDelegate {
 
     /// Frame for the active NSScrollView (between TabBar and PathBar, right of Sidebar).
     fn content_frame(&self) -> NSRect {
-        let Some(win) = self.ivars().window.get() else { return NSRect::ZERO };
-        let bounds = unsafe { win.contentView().unwrap().bounds() };
+        let Some(win) = self.ivars().window.get() else {
+            return NSRect::ZERO;
+        };
+        let bounds = win.contentView().unwrap().bounds();
         let h = bounds.size.height;
         let w = bounds.size.width;
         NSRect::new(
@@ -423,27 +424,34 @@ impl AppDelegate {
 
     /// Rebuild tab bar buttons.
     fn rebuild_tab_bar(&self) {
-        let Some(_win) = self.ivars().window.get() else { return };
-        let Some(tab_bar) = self.ivars().tab_bar.get() else { return };
+        let Some(_win) = self.ivars().window.get() else {
+            return;
+        };
+        let Some(tab_bar) = self.ivars().tab_bar.get() else {
+            return;
+        };
         let mtm = self.mtm();
         let active = self.ivars().active_index.get();
-        let target: &AnyObject = unsafe {
-            &*(self as *const AppDelegate as *const AnyObject)
-        };
+        let target: &AnyObject = unsafe { &*(self as *const AppDelegate as *const AnyObject) };
         let labels: Vec<(String, bool)> = {
             let tabs = self.ivars().tabs.borrow();
-            tabs.iter().enumerate().map(|(i, t)| {
-                let url = t.url.borrow();
-                (tab_label(url.as_deref(), t.is_dirty.get()), i == active)
-            }).collect()
+            tabs.iter()
+                .enumerate()
+                .map(|(i, t)| {
+                    let url = t.url.borrow();
+                    (tab_label(url.as_deref(), t.is_dirty.get()), i == active)
+                })
+                .collect()
         };
         tab_bar.rebuild(mtm, &labels, target);
     }
 
     /// Switch to tab `index`.
     fn switch_to_tab(&self, index: usize) {
-        let Some(win) = self.ivars().window.get() else { return };
-        let content = unsafe { win.contentView().unwrap() };
+        let Some(win) = self.ivars().window.get() else {
+            return;
+        };
+        let content = win.contentView().unwrap();
 
         // Remove old scroll view
         {
@@ -489,7 +497,8 @@ impl AppDelegate {
         let frame = self.content_frame();
         let tab = DocumentState::new_empty(mtm, scheme, frame);
         // Wire delegate so textViewDidChangeSelection: fires
-        tab.text_view.setDelegate(Some(ProtocolObject::from_ref(self)));
+        tab.text_view
+            .setDelegate(Some(ProtocolObject::from_ref(self)));
         let new_idx = {
             let mut tabs = self.ivars().tabs.borrow_mut();
             tabs.push(tab);
@@ -531,9 +540,13 @@ impl AppDelegate {
         let filename = {
             let tabs = self.ivars().tabs.borrow();
             tabs.get(index)
-                .and_then(|t| t.url.borrow().as_deref()
-                    .and_then(|p| p.file_name())
-                    .map(|n| n.to_string_lossy().into_owned()))
+                .and_then(|t| {
+                    t.url
+                        .borrow()
+                        .as_deref()
+                        .and_then(|p| p.file_name())
+                        .map(|n| n.to_string_lossy().into_owned())
+                })
                 .unwrap_or_else(|| "Untitled".to_string())
         };
 
@@ -551,7 +564,10 @@ impl AppDelegate {
             if let Some(t) = tabs.first() {
                 unsafe {
                     if let Some(storage) = t.text_view.textStorage() {
-                        let full = NSRange { location: 0, length: storage.length() };
+                        let full = NSRange {
+                            location: 0,
+                            length: storage.length(),
+                        };
                         let empty = NSString::from_str("");
                         storage.replaceCharactersInRange_withString(full, &empty);
                     }
@@ -580,7 +596,11 @@ impl AppDelegate {
         let new_idx = {
             let len = self.ivars().tabs.borrow().len();
             let cur = self.ivars().active_index.get();
-            if index <= cur && cur > 0 { cur - 1 } else { cur.min(len - 1) }
+            if index <= cur && cur > 0 {
+                cur - 1
+            } else {
+                cur.min(len - 1)
+            }
         };
         self.switch_to_tab(new_idx);
     }
@@ -611,7 +631,10 @@ impl AppDelegate {
         // Read content from TextStorage
         let content = {
             let tabs = self.ivars().tabs.borrow();
-            let tab = match tabs.get(idx) { Some(t) => t, None => return };
+            let tab = match tabs.get(idx) {
+                Some(t) => t,
+                None => return,
+            };
             unsafe { tab.text_view.textStorage() }
                 .map(|s| s.string().to_string())
                 .unwrap_or_default()
@@ -643,16 +666,20 @@ impl AppDelegate {
         use objc2_app_kit::NSSavePanel;
         let panel = NSSavePanel::savePanel(self.mtm());
         panel.setNameFieldStringValue(&NSString::from_str("Untitled.md"));
-        let response = unsafe { panel.runModal() };
-        if response != 1 { return None; } // NSModalResponseOK = 1
-        let ns_url = unsafe { panel.URL() }?;
-        let ns_path = unsafe { ns_url.path() }?;
+        let response = panel.runModal();
+        if response != 1 {
+            return None;
+        } // NSModalResponseOK = 1
+        let ns_url = panel.URL()?;
+        let ns_path = ns_url.path()?;
         Some(std::path::PathBuf::from(ns_path.to_string()))
     }
 
     /// Compute and apply the horizontal text container inset for the active tab.
     fn update_text_container_inset(&self) {
-        let Some(win) = self.ivars().window.get() else { return };
+        let Some(win) = self.ivars().window.get() else {
+            return;
+        };
         let editor_width = (win.frame().size.width - SIDEBAR_W).max(0.0);
         let max_text_width = 700.0_f64;
         let min_padding = 40.0_f64;
@@ -664,7 +691,8 @@ impl AppDelegate {
         let idx = self.ivars().active_index.get();
         let tabs = self.ivars().tabs.borrow();
         if let Some(t) = tabs.get(idx) {
-            t.text_view.setTextContainerInset(NSSize::new(h_inset, 40.0));
+            t.text_view
+                .setTextContainerInset(NSSize::new(h_inset, 40.0));
         }
     }
 }
@@ -673,21 +701,26 @@ impl AppDelegate {
 // Dirty-check dialog
 // ---------------------------------------------------------------------------
 
-enum SaveChoice { Save, DontSave, Cancel }
+enum SaveChoice {
+    Save,
+    DontSave,
+    Cancel,
+}
 
 fn show_save_alert(filename: &str, mtm: MainThreadMarker) -> SaveChoice {
     use objc2_app_kit::NSAlert;
     let alert = NSAlert::new(mtm);
-    alert.setMessageText(&NSString::from_str(
-        &format!("Do you want to save changes to \"{}\"?", filename)
-    ));
+    alert.setMessageText(&NSString::from_str(&format!(
+        "Do you want to save changes to \"{}\"?",
+        filename
+    )));
     alert.setInformativeText(&NSString::from_str(
-        "Your changes will be lost if you don't save them."
+        "Your changes will be lost if you don't save them.",
     ));
-    alert.addButtonWithTitle(&NSString::from_str("Save"));        // 1000
-    alert.addButtonWithTitle(&NSString::from_str("Don't Save"));  // 1001
-    alert.addButtonWithTitle(&NSString::from_str("Cancel"));      // 1002
-    let response = unsafe { alert.runModal() };
+    alert.addButtonWithTitle(&NSString::from_str("Save")); // 1000
+    alert.addButtonWithTitle(&NSString::from_str("Don't Save")); // 1001
+    alert.addButtonWithTitle(&NSString::from_str("Cancel")); // 1002
+    let response = alert.runModal();
     match response {
         1000 => SaveChoice::Save,
         1001 => SaveChoice::DontSave,
@@ -704,7 +737,9 @@ fn show_save_alert(filename: &str, mtm: MainThreadMarker) -> SaveChoice {
 /// Uses `insertText:replacementRange:` so the edit is registered with undo.
 fn wrap_selection(tv: &NSTextView, prefix: &str, suffix: &str) {
     let range: NSRange = unsafe { msg_send![tv, selectedRange] };
-    let Some(storage) = (unsafe { tv.textStorage() }) else { return };
+    let Some(storage) = (unsafe { tv.textStorage() }) else {
+        return;
+    };
     let selected: Retained<NSString> = storage.string().substringWithRange(range);
     let combined = format!("{}{}{}", prefix, selected, suffix);
     let ns = NSString::from_str(&combined);
@@ -716,12 +751,20 @@ fn wrap_selection(tv: &NSTextView, prefix: &str, suffix: &str) {
 /// Works on the NSString level so it correctly handles multi-byte content.
 fn prepend_line(tv: &NSTextView, prefix: &str) {
     let caret: NSRange = unsafe { msg_send![tv, selectedRange] };
-    let Some(storage) = (unsafe { tv.textStorage() }) else { return };
+    let Some(storage) = (unsafe { tv.textStorage() }) else {
+        return;
+    };
     let ns_str = storage.string();
     // NSString.lineRangeForRange: gives us the UTF-16 range of the whole line.
-    let point = NSRange { location: caret.location, length: 0 };
+    let point = NSRange {
+        location: caret.location,
+        length: 0,
+    };
     let line_range: NSRange = ns_str.lineRangeForRange(point);
-    let insert_at = NSRange { location: line_range.location, length: 0 };
+    let insert_at = NSRange {
+        location: line_range.location,
+        length: 0,
+    };
     let ns = NSString::from_str(prefix);
     unsafe { msg_send![tv, insertText: &*ns, replacementRange: insert_at] }
 }
@@ -730,9 +773,14 @@ fn prepend_line(tv: &NSTextView, prefix: &str) {
 /// from the line containing the caret (applyNormal:).
 fn strip_line_prefix(tv: &NSTextView) {
     let caret: NSRange = unsafe { msg_send![tv, selectedRange] };
-    let Some(storage) = (unsafe { tv.textStorage() }) else { return };
+    let Some(storage) = (unsafe { tv.textStorage() }) else {
+        return;
+    };
     let ns_str = storage.string();
-    let point = NSRange { location: caret.location, length: 0 };
+    let point = NSRange {
+        location: caret.location,
+        length: 0,
+    };
     let line_range: NSRange = ns_str.lineRangeForRange(point);
     let line_text = ns_str.substringWithRange(line_range).to_string();
 
@@ -749,7 +797,9 @@ fn strip_line_prefix(tv: &NSTextView) {
         0
     };
 
-    if prefix_len == 0 { return; }
+    if prefix_len == 0 {
+        return;
+    }
 
     // All prefix characters are ASCII (1 UTF-16 unit each).
     let remove_range = NSRange {
@@ -764,7 +814,9 @@ fn strip_line_prefix(tv: &NSTextView) {
 /// If nothing is selected, insert an empty fence and position the cursor inside.
 fn insert_code_block(tv: &NSTextView) {
     let range: NSRange = unsafe { msg_send![tv, selectedRange] };
-    let Some(storage) = (unsafe { tv.textStorage() }) else { return };
+    let Some(storage) = (unsafe { tv.textStorage() }) else {
+        return;
+    };
     let selected = storage.string().substringWithRange(range).to_string();
     let fence = "```";
     let text = if selected.is_empty() {
@@ -812,10 +864,7 @@ fn detect_scheme(app: &NSApplication) -> ColorScheme {
     let appearance = app.effectiveAppearance();
     // NSAppearanceNameAqua / DarkAqua are extern statics (→ unsafe access).
     let is_dark = unsafe {
-        let names = NSArray::from_slice(&[
-            NSAppearanceNameAqua,
-            NSAppearanceNameDarkAqua,
-        ]);
+        let names = NSArray::from_slice(&[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]);
         appearance
             .bestMatchFromAppearancesWithNames(&names)
             .map(|name| name.isEqualToString(NSAppearanceNameDarkAqua))

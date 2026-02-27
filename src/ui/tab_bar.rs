@@ -15,7 +15,11 @@ pub fn tab_label(url: Option<&Path>, is_dirty: bool) -> String {
         .and_then(|p| p.file_name())
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| "Untitled".to_string());
-    if is_dirty { format!("• {}", name) } else { name }
+    if is_dirty {
+        format!("• {}", name)
+    } else {
+        name
+    }
 }
 
 /// Full path string for the path bar.
@@ -32,44 +36,43 @@ use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, Sel};
 use objc2::{msg_send, ClassType, MainThreadOnly};
 use objc2_app_kit::{
-    NSBezelStyle, NSButton, NSButtonType, NSColor, NSControl,
-    NSFont, NSImage, NSView,
+    NSBezelStyle, NSButton, NSButtonType, NSColor, NSControl, NSFont, NSImage, NSView,
 };
 use objc2_foundation::{MainThreadMarker, NSPoint, NSRect, NSSize, NSString};
 
 pub const HEIGHT: f64 = 32.0;
-const BTN_H:      f64 = 22.0;
-const CLOSE_W:    f64 = 18.0;
-const TITLE_W:    f64 = 110.0;
-const PLUS_W:     f64 = 28.0;
-const PAD:        f64 = 4.0;
+const BTN_H: f64 = 22.0;
+const CLOSE_W: f64 = 18.0;
+const TITLE_W: f64 = 110.0;
+const PLUS_W: f64 = 28.0;
+const PAD: f64 = 4.0;
 /// Width of each icon tool button (Open / Save).
-const TOOL_W:     f64 = 28.0;
+const TOOL_W: f64 = 28.0;
 /// Extra gap between tool buttons and the first tab.
-const TOOL_SEP:   f64 = 6.0;
+const TOOL_SEP: f64 = 6.0;
 /// Height of the active-tab underline indicator.
 const INDICATOR_H: f64 = 2.0;
 /// Height of the bottom separator line.
-const SEP_H:       f64 = 0.5;
+const SEP_H: f64 = 0.5;
 
 pub struct TabBar {
     container: Retained<NSView>,
-    indicator: Retained<NSView>,   // colored underline for active tab
-    bottom_sep: Retained<NSView>,  // 0.5pt separator at bottom
+    indicator: Retained<NSView>,  // colored underline for active tab
+    bottom_sep: Retained<NSView>, // 0.5pt separator at bottom
 }
 
 impl TabBar {
     pub fn new(mtm: MainThreadMarker, width: f64) -> Self {
-        let frame = NSRect::new(
-            NSPoint::new(0.0, 0.0),
-            NSSize::new(width, HEIGHT),
-        );
+        let frame = NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(width, HEIGHT));
         let container = NSView::initWithFrame(NSView::alloc(mtm), frame);
 
         // ── Active-tab indicator (2pt colored underline) ──────────────────
         let indicator = NSView::initWithFrame(
             NSView::alloc(mtm),
-            NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(TITLE_W + CLOSE_W, INDICATOR_H)),
+            NSRect::new(
+                NSPoint::new(0.0, 0.0),
+                NSSize::new(TITLE_W + CLOSE_W, INDICATOR_H),
+            ),
         );
         indicator.setWantsLayer(true);
         // Color is applied in apply_colors()
@@ -83,7 +86,11 @@ impl TabBar {
         bottom_sep.setWantsLayer(true);
         container.addSubview(&bottom_sep);
 
-        let tb = Self { container, indicator, bottom_sep };
+        let tb = Self {
+            container,
+            indicator,
+            bottom_sep,
+        };
         tb.apply_colors();
         tb
     }
@@ -93,16 +100,18 @@ impl TabBar {
     /// Call after creation and whenever the system appearance changes.
     pub fn apply_colors(&self) {
         // Accent color for active-tab indicator
-        if let Some(layer) = unsafe { self.indicator.layer() } {
-            let accent = unsafe { NSColor::controlAccentColor() };
+        if let Some(layer) = self.indicator.layer() {
+            let accent = NSColor::controlAccentColor();
             let cg: *mut std::ffi::c_void = unsafe { msg_send![&*accent, CGColor] };
-            let _: () = unsafe { msg_send![&*layer, setBackgroundColor: cg] };
+            let raw: *const AnyObject = Retained::as_ptr(&layer).cast();
+            let _: () = unsafe { msg_send![raw, setBackgroundColor: cg] };
         }
         // Separator color for bottom line
-        if let Some(layer) = unsafe { self.bottom_sep.layer() } {
-            let sep = unsafe { NSColor::separatorColor() };
+        if let Some(layer) = self.bottom_sep.layer() {
+            let sep = NSColor::separatorColor();
             let cg: *mut std::ffi::c_void = unsafe { msg_send![&*sep, CGColor] };
-            let _: () = unsafe { msg_send![&*layer, setBackgroundColor: cg] };
+            let raw: *const AnyObject = Retained::as_ptr(&layer).cast();
+            let _: () = unsafe { msg_send![raw, setBackgroundColor: cg] };
         }
     }
 
@@ -111,14 +120,9 @@ impl TabBar {
     /// `tabs` is a slice of `(label, is_active)` pairs.
     /// Button tags encode the tab index; target receives `switchToTab:` /
     /// `closeTab:` / `newDocument:`.
-    pub fn rebuild(
-        &self,
-        mtm: MainThreadMarker,
-        tabs: &[(String, bool)],
-        target: &AnyObject,
-    ) {
+    pub fn rebuild(&self, mtm: MainThreadMarker, tabs: &[(String, bool)], target: &AnyObject) {
         // Remove all subviews, then re-add the permanent chrome views.
-        for sv in unsafe { self.container.subviews() }.iter() {
+        for sv in self.container.subviews().iter() {
             sv.removeFromSuperview();
         }
         self.container.addSubview(&self.indicator);
@@ -133,7 +137,7 @@ impl TabBar {
             "folder",
             "Open",
             NSRect::new(NSPoint::new(x, y), NSSize::new(TOOL_W, BTN_H)),
-            unsafe { Sel::register(c"openDocument:") },
+            Sel::register(c"openDocument:"),
             target,
             -3,
         );
@@ -146,7 +150,7 @@ impl TabBar {
             "square.and.arrow.down",
             "Save",
             NSRect::new(NSPoint::new(x, y), NSSize::new(TOOL_W, BTN_H)),
-            unsafe { Sel::register(c"saveDocument:") },
+            Sel::register(c"saveDocument:"),
             target,
             -4,
         );
@@ -165,7 +169,7 @@ impl TabBar {
                 mtm,
                 label,
                 NSRect::new(NSPoint::new(x, y), NSSize::new(TITLE_W, BTN_H)),
-                unsafe { Sel::register(c"switchToTab:") },
+                Sel::register(c"switchToTab:"),
                 target,
                 i as isize,
             );
@@ -177,7 +181,7 @@ impl TabBar {
                 mtm,
                 "\u{00D7}",
                 NSRect::new(NSPoint::new(x, y), NSSize::new(CLOSE_W, BTN_H)),
-                unsafe { Sel::register(c"closeTab:") },
+                Sel::register(c"closeTab:"),
                 target,
                 i as isize,
             );
@@ -190,7 +194,7 @@ impl TabBar {
             mtm,
             "+",
             NSRect::new(NSPoint::new(x, y), NSSize::new(PLUS_W, BTN_H)),
-            unsafe { Sel::register(c"newDocument:") },
+            Sel::register(c"newDocument:"),
             target,
             -1isize,
         );
@@ -234,7 +238,7 @@ fn make_button(
     let btn = NSButton::initWithFrame(NSButton::alloc(mtm), frame);
     btn.setTitle(&NSString::from_str(title));
     btn.setButtonType(NSButtonType::MomentaryPushIn);
-    btn.setBezelStyle(NSBezelStyle::Inline);
+    btn.setBezelStyle(NSBezelStyle::AccessoryBarAction);
     unsafe {
         NSControl::setTarget(&btn, Some(target));
         NSControl::setAction(&btn, Some(action));
@@ -256,7 +260,7 @@ fn make_icon_button(
 ) -> Retained<NSButton> {
     let btn = NSButton::initWithFrame(NSButton::alloc(mtm), frame);
     btn.setButtonType(NSButtonType::MomentaryPushIn);
-    btn.setBezelStyle(NSBezelStyle::Inline);
+    btn.setBezelStyle(NSBezelStyle::AccessoryBarAction);
     unsafe {
         NSControl::setTarget(&btn, Some(target));
         NSControl::setAction(&btn, Some(action));
@@ -279,10 +283,8 @@ fn make_icon_button(
     } else {
         // Fallback to text label
         btn.setTitle(&NSString::from_str(fallback_title));
-        unsafe {
-            let font = NSFont::systemFontOfSize_weight(12.0, 0.0);
-            btn.setFont(Some(&font));
-        }
+        let font = NSFont::systemFontOfSize_weight(12.0, 0.0);
+        btn.setFont(Some(&font));
     }
 
     btn

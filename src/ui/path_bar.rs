@@ -17,7 +17,7 @@ const FIELD_H: f64 = 16.0;
 
 pub struct PathBar {
     container: Retained<NSView>,
-    field:     Retained<NSTextField>,
+    field: Retained<NSTextField>,
 }
 
 impl PathBar {
@@ -41,11 +41,9 @@ impl PathBar {
         field.setSelectable(false);
         field.setBordered(false);
         field.setDrawsBackground(false);
-        unsafe {
-            let font = NSFont::systemFontOfSize_weight(11.0, 0.0);
-            field.setFont(Some(&font));
-            field.setTextColor(Some(&NSColor::secondaryLabelColor()));
-        }
+        let font = NSFont::systemFontOfSize_weight(11.0, 0.0);
+        field.setFont(Some(&font));
+        field.setTextColor(Some(&NSColor::secondaryLabelColor()));
         field.setStringValue(&NSString::from_str("Untitled — not saved"));
 
         container.addSubview(&field);

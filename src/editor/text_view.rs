@@ -73,10 +73,8 @@ define_class!(
         #[unsafe(method(mouseDown:))]
         fn mouse_down(&self, event: &objc2_app_kit::NSEvent) {
             // Convert window coords → view coords.
-            let window_point = unsafe { event.locationInWindow() };
-            let view_point: NSPoint = unsafe {
-                self.convertPoint_fromView(window_point, None)
-            };
+            let window_point = event.locationInWindow();
+            let view_point: NSPoint = self.convertPoint_fromView(window_point, None);
 
             // Find which copy-button (if any) was clicked.
             let click_result = {
@@ -122,9 +120,9 @@ define_class!(
 impl MditTextView {
     fn new(mtm: MainThreadMarker, frame: NSRect) -> Retained<Self> {
         let this = Self::alloc(mtm).set_ivars(MditTextViewIvars {
-            delegate:          RefCell::new(None),
+            delegate: RefCell::new(None),
             copy_button_rects: RefCell::new(Vec::new()),
-            copy_feedback:     RefCell::new(None),
+            copy_feedback: RefCell::new(None),
         });
         unsafe { msg_send![super(this), initWithFrame: frame] }
     }
@@ -168,9 +166,8 @@ impl MditTextView {
 
         for &utf16_pos in &positions {
             // Map the heading character index to a glyph index.
-            let glyph_idx: usize = unsafe {
-                msg_send![&*layout_manager, glyphIndexForCharacterAtIndex: utf16_pos]
-            };
+            let glyph_idx: usize =
+                unsafe { msg_send![&*layout_manager, glyphIndexForCharacterAtIndex: utf16_pos] };
             if glyph_idx == usize::MAX {
                 continue; // NSNotFound — layout not yet complete
             }
@@ -276,12 +273,14 @@ impl MditTextView {
 
             let icon_x = block_rect.origin.x + block_rect.size.width - 20.0;
             let icon_y = block_rect.origin.y + 6.0;
-            let icon_rect = NSRect::new(
-                NSPoint::new(icon_x, icon_y),
-                NSSize::new(14.0, 14.0),
-            );
+            let icon_rect = NSRect::new(NSPoint::new(icon_x, icon_y), NSSize::new(14.0, 14.0));
 
-            result.push((block_rect, icon_rect, info.text.clone(), info.language.clone()));
+            result.push((
+                block_rect,
+                icon_rect,
+                info.text.clone(),
+                info.language.clone(),
+            ));
         }
         result
     }
@@ -308,9 +307,8 @@ impl MditTextView {
             }
         };
         for (block_rect, _, _, _) in rects {
-            let path = unsafe {
-                NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(block_rect, 6.0, 6.0)
-            };
+            let path =
+                NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(block_rect, 6.0, 6.0);
             fill_color.setFill();
             path.fill();
         }
@@ -326,11 +324,9 @@ impl MditTextView {
         let rects = self.code_block_rects();
 
         for (index, (block_rect, icon_rect, code_text, language)) in rects.into_iter().enumerate() {
-
             // ── Draw border ───────────────────────────────────────────────────
-            let border_path = unsafe {
-                NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(block_rect, 6.0, 6.0)
-            };
+            let border_path =
+                NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(block_rect, 6.0, 6.0);
             border_path.setLineWidth(1.0);
             NSColor::separatorColor().setStroke();
             border_path.stroke();
@@ -346,15 +342,16 @@ impl MditTextView {
                     let obj: *mut objc2::runtime::AnyObject = msg_send![cls, alloc];
                     let obj: *mut objc2::runtime::AnyObject =
                         msg_send![obj, initWithString: &*ns_lang];
-                    Retained::retain(obj)
-                        .expect("initWithString returned nil")
+                    Retained::retain(obj).expect("initWithString returned nil")
                 };
 
                 let tag_len = language.encode_utf16().count();
-                let tag_range = objc2_foundation::NSRange { location: 0, length: tag_len };
-                let tag_font = unsafe {
-                    NSFont::monospacedSystemFontOfSize_weight(10.0, NSFontWeightRegular)
+                let tag_range = objc2_foundation::NSRange {
+                    location: 0,
+                    length: tag_len,
                 };
+                let tag_font =
+                    unsafe { NSFont::monospacedSystemFontOfSize_weight(10.0, NSFontWeightRegular) };
                 let tag_color = NSColor::secondaryLabelColor();
                 unsafe {
                     let font_obj: &objc2::runtime::AnyObject = &**tag_font;
@@ -379,7 +376,7 @@ impl MditTextView {
                 let gap_h = tag_size.height + 2.0;
 
                 // Erase the border line in the gap with the view's background color.
-                let bg = unsafe { self.backgroundColor() };
+                let bg = self.backgroundColor();
                 bg.setFill();
                 NSRectFill(NSRect::new(
                     NSPoint::new(gap_x, gap_y),
@@ -400,23 +397,26 @@ impl MditTextView {
                 let fb = self.ivars().copy_feedback.borrow();
                 matches!(&*fb, Some((i, t)) if *i == index && t.elapsed().as_secs_f64() < 1.5)
             };
-            unsafe {
-                let icon_name = if show_checkmark { "checkmark" } else { "doc.on.doc" };
-                let name = NSString::from_str(icon_name);
-                if let Some(icon) = NSImage::imageWithSystemSymbolName_accessibilityDescription(
-                    &name, None,
-                ) {
-                    if show_checkmark {
-                        NSColor::systemGreenColor().set();
-                    } else {
-                        NSColor::secondaryLabelColor().set();
-                    }
-                    icon.drawInRect(icon_rect);
+            let icon_name = if show_checkmark {
+                "checkmark"
+            } else {
+                "doc.on.doc"
+            };
+            let name = NSString::from_str(icon_name);
+            if let Some(icon) =
+                NSImage::imageWithSystemSymbolName_accessibilityDescription(&name, None)
+            {
+                if show_checkmark {
+                    NSColor::systemGreenColor().set();
+                } else {
+                    NSColor::secondaryLabelColor().set();
                 }
+                icon.drawInRect(icon_rect);
             }
 
             // Store rect for hit-testing in mouseDown:.
-            self.ivars().copy_button_rects
+            self.ivars()
+                .copy_button_rects
                 .borrow_mut()
                 .push((icon_rect, code_text));
         }
@@ -439,7 +439,11 @@ impl MditTextView {
 pub fn create_editor_view(
     mtm: MainThreadMarker,
     frame: NSRect,
-) -> (Retained<NSScrollView>, Retained<NSTextView>, Retained<MditEditorDelegate>) {
+) -> (
+    Retained<NSScrollView>,
+    Retained<NSTextView>,
+    Retained<MditEditorDelegate>,
+) {
     // 1. Scroll view
     let scroll = NSScrollView::initWithFrame(NSScrollView::alloc(mtm), frame);
     scroll.setHasVerticalScroller(true);
@@ -456,9 +460,7 @@ pub fn create_editor_view(
 
     // Basic appearance — SF Pro body, semantic background color.
     mdit_tv.setRichText(false);
-    let body_font = unsafe {
-        NSFont::systemFontOfSize_weight(16.0, NSFontWeightRegular)
-    };
+    let body_font = unsafe { NSFont::systemFontOfSize_weight(16.0, NSFontWeightRegular) };
     mdit_tv.setFont(Some(&body_font));
     mdit_tv.setTextColor(Some(&NSColor::labelColor()));
     // Use an explicit sRGB colour matching ColorScheme::light().background so that
@@ -468,8 +470,7 @@ pub fn create_editor_view(
     mdit_tv.setAutomaticQuoteSubstitutionEnabled(false);
     mdit_tv.setAutomaticDashSubstitutionEnabled(false);
     mdit_tv.setAutoresizingMask(
-        NSAutoresizingMaskOptions::ViewWidthSizable
-            | NSAutoresizingMaskOptions::ViewHeightSizable,
+        NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewHeightSizable,
     );
     // Initial padding — app.rs will tune this dynamically on window resize.
     mdit_tv.setTextContainerInset(NSSize::new(40.0, 40.0));
