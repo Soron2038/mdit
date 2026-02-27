@@ -14,3 +14,7 @@ dist/
 
 # Git worktrees
 .worktrees/
+
+# Temporary test.md
+test.md 
+
