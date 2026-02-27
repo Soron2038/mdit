@@ -14,7 +14,45 @@ use objc2_foundation::{NSNumber, NSRange};
 
 use crate::editor::renderer::AttributeRun;
 use crate::markdown::attributes::{AttributeSet, TextAttribute};
+use crate::markdown::parser::{MarkdownSpan, NodeKind};
 use crate::ui::appearance::ColorScheme;
+
+// ---------------------------------------------------------------------------
+// Code-block info collection
+// ---------------------------------------------------------------------------
+
+/// Metadata about a fenced code block, computed once per edit from the AST.
+/// Used by MditTextView to draw the visual box and handle copy-to-clipboard.
+#[derive(Debug, Clone)]
+pub struct CodeBlockInfo {
+    /// UTF-16 code-unit offset of the code block's first character.
+    pub start_utf16: usize,
+    /// UTF-16 code-unit offset one past the code block's last character.
+    pub end_utf16: usize,
+    /// The raw code content (without fences, trailing newline stripped).
+    pub text: String,
+}
+
+/// Walk `spans` to find all `CodeBlock` nodes, convert their byte offsets
+/// to UTF-16, and return the list.  Call this after every re-parse.
+pub fn collect_code_block_infos(spans: &[MarkdownSpan], text: &str) -> Vec<CodeBlockInfo> {
+    let mut result = Vec::new();
+    collect_recursive(spans, text, &mut result);
+    result
+}
+
+fn collect_recursive(spans: &[MarkdownSpan], text: &str, out: &mut Vec<CodeBlockInfo>) {
+    for span in spans {
+        if let NodeKind::CodeBlock { code, .. } = &span.kind {
+            out.push(CodeBlockInfo {
+                start_utf16: byte_to_utf16(text, span.source_range.0),
+                end_utf16: byte_to_utf16(text, span.source_range.1),
+                text: code.clone(),
+            });
+        }
+        collect_recursive(&span.children, text, out);
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Public entry point
