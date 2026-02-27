@@ -199,6 +199,55 @@ fn h3_content_does_not_get_heading_separator() {
 }
 
 #[test]
+fn code_block_fences_hidden_without_cursor() {
+    // "```rust\n" = bytes 0..8, "let x = 1;\n" = bytes 8..19, "```\n" = bytes 19..23
+    let text = "```rust\nlet x = 1;\n```\n";
+    let spans = parse(text);
+    let runs = compute_attribute_runs(text, &spans, None);
+
+    let opening = runs.iter().find(|r| r.range.0 == 0)
+        .expect("no run starting at byte 0");
+    assert!(opening.attrs.contains(&TextAttribute::Hidden),
+        "opening fence must be hidden; got: {:?}", opening.attrs.attrs());
+
+    let content = runs.iter().find(|r| r.range.0 == 8)
+        .expect("no run starting at byte 8");
+    assert!(content.attrs.contains(&TextAttribute::Monospace),
+        "code content must be Monospace");
+    assert!(!content.attrs.contains(&TextAttribute::Hidden),
+        "code content must not be hidden");
+
+    let closing = runs.iter().find(|r| r.range.0 == 19)
+        .expect("no run starting at byte 19");
+    assert!(closing.attrs.contains(&TextAttribute::Hidden),
+        "closing fence must be hidden");
+}
+
+#[test]
+fn opening_fence_visible_when_cursor_on_it() {
+    let text = "```rust\nlet x = 1;\n```\n";
+    let spans = parse(text);
+    // cursor at byte 2 — inside the opening fence (bytes 0..8)
+    let runs = compute_attribute_runs(text, &spans, Some(2));
+    let opening = runs.iter().find(|r| r.range.0 == 0)
+        .expect("no run at byte 0");
+    assert!(!opening.attrs.contains(&TextAttribute::Hidden),
+        "opening fence must be visible when cursor is on it");
+}
+
+#[test]
+fn closing_fence_visible_when_cursor_on_it() {
+    let text = "```rust\nlet x = 1;\n```\n";
+    let spans = parse(text);
+    // cursor at byte 20 — inside the closing fence (bytes 19..23)
+    let runs = compute_attribute_runs(text, &spans, Some(20));
+    let closing = runs.iter().find(|r| r.range.0 == 19)
+        .expect("no run at byte 19");
+    assert!(!closing.attrs.contains(&TextAttribute::Hidden),
+        "closing fence must be visible when cursor is on it");
+}
+
+#[test]
 fn code_block_code_content_captured() {
     let text = "```rust\nlet x = 1;\n```\n";
     let spans = mdit::markdown::parser::parse(text);

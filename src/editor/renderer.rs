@@ -162,10 +162,48 @@ fn collect_runs(
             });
         }
         NodeKind::CodeBlock { .. } => {
-            runs.push(AttributeRun {
-                range: (start, end),
-                attrs: AttributeSet::for_code_block(),
-            });
+            let slice = &text[start..end];
+            if let Some(open_nl) = slice.find('\n') {
+                let open_end = start + open_nl + 1; // includes the \n
+
+                // Start of closing fence = start of last line in text[open_end..end].
+                // "Last line" starts right after the second-to-last \n.
+                let suffix = &text[open_end..end];
+                let close_start = open_end + if suffix.len() > 1 {
+                    suffix[..suffix.len() - 1]
+                        .rfind('\n')
+                        .map(|p| p + 1)
+                        .unwrap_or(0)
+                } else {
+                    0
+                };
+
+                // Opening fence: hidden/visible based on cursor position ON that line.
+                runs.push(AttributeRun {
+                    range: (start, open_end),
+                    attrs: syntax_attrs(cursor_pos, (start, open_end)),
+                });
+                // Code content (may be empty for a block with no body).
+                if open_end < close_start {
+                    runs.push(AttributeRun {
+                        range: (open_end, close_start),
+                        attrs: AttributeSet::for_code_block(),
+                    });
+                }
+                // Closing fence.
+                if close_start < end {
+                    runs.push(AttributeRun {
+                        range: (close_start, end),
+                        attrs: syntax_attrs(cursor_pos, (close_start, end)),
+                    });
+                }
+            } else {
+                // Degenerate: no newline — treat whole span as code content.
+                runs.push(AttributeRun {
+                    range: (start, end),
+                    attrs: AttributeSet::for_code_block(),
+                });
+            }
         }
         NodeKind::BlockQuote => {
             runs.push(AttributeRun {
