@@ -24,6 +24,9 @@ pub struct MditTextViewIvars {
     /// Copy-button rects computed each draw cycle: (icon_rect, code_text).
     /// Populated in draw_code_blocks(), read in mouseDown:.
     copy_button_rects: RefCell<Vec<(NSRect, String)>>,
+    /// When Some, the copy-feedback state: (block_index, time_of_copy).
+    /// Drives the green-checkmark overlay for 1.5s after a copy action.
+    copy_feedback: RefCell<Option<(usize, std::time::Instant)>>,
 }
 
 define_class!(
@@ -58,6 +61,14 @@ define_class!(
             self.draw_heading_separators();
         }
 
+        /// Timer callback — clears the copy-feedback state and triggers a redraw
+        /// to revert the green checkmark back to the normal copy icon.
+        #[unsafe(method(clearCopyFeedback))]
+        fn clear_copy_feedback(&self) {
+            *self.ivars().copy_feedback.borrow_mut() = None;
+            let _: () = unsafe { msg_send![self, setNeedsDisplay: true] };
+        }
+
         #[unsafe(method(mouseDown:))]
         fn mouse_down(&self, event: &objc2_app_kit::NSEvent) {
             // Convert window coords → view coords.
@@ -66,24 +77,40 @@ define_class!(
                 self.convertPoint_fromView(window_point, None)
             };
 
-            // Check if click landed on any copy-button icon.
-            let rects = self.ivars().copy_button_rects.borrow();
-            for (rect, code_text) in rects.iter() {
-                let in_rect = view_point.x >= rect.origin.x
-                    && view_point.x <= rect.origin.x + rect.size.width
-                    && view_point.y >= rect.origin.y
-                    && view_point.y <= rect.origin.y + rect.size.height;
-                if in_rect {
-                    unsafe {
-                        let pb = NSPasteboard::generalPasteboard();
-                        pb.clearContents();
-                        let ns_str = NSString::from_str(code_text);
-                        pb.setString_forType(&ns_str, NSPasteboardTypeString);
-                    }
-                    return; // Consume event — don't pass to text editing.
+            // Find which copy-button (if any) was clicked.
+            let click_result = {
+                let rects = self.ivars().copy_button_rects.borrow();
+                rects.iter().enumerate().find_map(|(idx, (rect, code_text))| {
+                    let in_rect = view_point.x >= rect.origin.x
+                        && view_point.x <= rect.origin.x + rect.size.width
+                        && view_point.y >= rect.origin.y
+                        && view_point.y <= rect.origin.y + rect.size.height;
+                    if in_rect { Some((idx, code_text.clone())) } else { None }
+                })
+            };
+
+            if let Some((block_idx, code_text)) = click_result {
+                // Copy content to clipboard.
+                unsafe {
+                    let pb = NSPasteboard::generalPasteboard();
+                    pb.clearContents();
+                    let ns_str = NSString::from_str(&code_text);
+                    pb.setString_forType(&ns_str, NSPasteboardTypeString);
                 }
+                // Activate feedback: green checkmark for 1.5s.
+                *self.ivars().copy_feedback.borrow_mut() =
+                    Some((block_idx, std::time::Instant::now()));
+                unsafe {
+                    let _: () = msg_send![
+                        self,
+                        performSelector: objc2::sel!(clearCopyFeedback),
+                        withObject: std::ptr::null::<objc2::runtime::AnyObject>(),
+                        afterDelay: 1.5f64
+                    ];
+                    let _: () = msg_send![self, setNeedsDisplay: true];
+                }
+                return;
             }
-            drop(rects);
 
             // Not a copy-button click — pass to standard text-view handling.
             let _: () = unsafe { msg_send![super(self), mouseDown: event] };
@@ -94,8 +121,9 @@ define_class!(
 impl MditTextView {
     fn new(mtm: MainThreadMarker, frame: NSRect) -> Retained<Self> {
         let this = Self::alloc(mtm).set_ivars(MditTextViewIvars {
-            delegate: RefCell::new(None),
+            delegate:          RefCell::new(None),
             copy_button_rects: RefCell::new(Vec::new()),
+            copy_feedback:     RefCell::new(None),
         });
         unsafe { msg_send![super(this), initWithFrame: frame] }
     }
@@ -296,7 +324,7 @@ impl MditTextView {
 
         let rects = self.code_block_rects();
 
-        for (block_rect, icon_rect, code_text) in rects {
+        for (index, (block_rect, icon_rect, code_text)) in rects.into_iter().enumerate() {
 
             // ── Draw border ───────────────────────────────────────────────────
             let border_path = unsafe {
@@ -307,15 +335,22 @@ impl MditTextView {
             border_path.stroke();
 
             // ── Draw SF Symbol copy icon (14×14pt) ────────────────────────────
-            // Explicitly set the label color so the template image renders
-            // visibly in both light and dark mode (without this, it may use
-            // whatever fill color was last set, which could be white/invisible).
+            // Show green checkmark for 1.5s after a copy, then revert to copy icon.
+            let show_checkmark = {
+                let fb = self.ivars().copy_feedback.borrow();
+                matches!(&*fb, Some((i, t)) if *i == index && t.elapsed().as_secs_f64() < 1.5)
+            };
             unsafe {
-                let name = NSString::from_str("doc.on.doc");
+                let icon_name = if show_checkmark { "checkmark" } else { "doc.on.doc" };
+                let name = NSString::from_str(icon_name);
                 if let Some(icon) = NSImage::imageWithSystemSymbolName_accessibilityDescription(
                     &name, None,
                 ) {
-                    NSColor::secondaryLabelColor().set();
+                    if show_checkmark {
+                        NSColor::systemGreenColor().set();
+                    } else {
+                        NSColor::secondaryLabelColor().set();
+                    }
                     icon.drawInRect(icon_rect);
                 }
             }
