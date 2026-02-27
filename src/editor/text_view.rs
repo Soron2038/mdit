@@ -4,10 +4,10 @@ use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2::{define_class, msg_send, DefinedClass, MainThreadOnly};
 use objc2_app_kit::{
-    NSAutoresizingMaskOptions, NSColor, NSFont, NSFontWeightRegular, NSRectFill, NSScrollView,
-    NSTextView,
+    NSAutoresizingMaskOptions, NSBezierPath, NSColor, NSFont, NSFontWeightRegular, NSImage,
+    NSPasteboard, NSPasteboardTypeString, NSRectFill, NSScrollView, NSTextView,
 };
-use objc2_foundation::{MainThreadMarker, NSObjectProtocol, NSPoint, NSRect, NSSize};
+use objc2_foundation::{MainThreadMarker, NSObjectProtocol, NSPoint, NSRect, NSSize, NSString};
 
 use super::text_storage::MditEditorDelegate;
 use crate::ui::appearance::ColorScheme;
@@ -21,6 +21,9 @@ pub struct MditTextViewIvars {
     /// Retained reference to the editor delegate so `drawRect:` can read
     /// the current heading separator positions without extra wiring.
     delegate: RefCell<Option<Retained<MditEditorDelegate>>>,
+    /// Copy-button rects computed each draw cycle: (icon_rect, code_text).
+    /// Populated in draw_code_blocks(), read in mouseDown:.
+    copy_button_rects: RefCell<Vec<(NSRect, String)>>,
 }
 
 define_class!(
@@ -37,6 +40,7 @@ define_class!(
         #[unsafe(method(drawRect:))]
         fn draw_rect(&self, dirty_rect: NSRect) {
             let _: () = unsafe { msg_send![super(self), drawRect: dirty_rect] };
+            self.draw_code_blocks();
             self.draw_heading_separators();
         }
     }
@@ -46,6 +50,7 @@ impl MditTextView {
     fn new(mtm: MainThreadMarker, frame: NSRect) -> Retained<Self> {
         let this = Self::alloc(mtm).set_ivars(MditTextViewIvars {
             delegate: RefCell::new(None),
+            copy_button_rects: RefCell::new(Vec::new()),
         });
         unsafe { msg_send![super(this), initWithFrame: frame] }
     }
@@ -120,6 +125,114 @@ impl MditTextView {
                 NSSize::new(x_end - x_start, 0.5),
             );
             NSRectFill(line_rect);
+        }
+    }
+
+    fn draw_code_blocks(&self) {
+        // Clear previous frame's hit rects.
+        self.ivars().copy_button_rects.borrow_mut().clear();
+
+        let delegate_ref = self.ivars().delegate.borrow();
+        let delegate = match delegate_ref.as_ref() {
+            Some(d) => d,
+            None => return,
+        };
+        let infos = delegate.code_block_infos();
+        if infos.is_empty() {
+            return;
+        }
+
+        let layout_manager = match unsafe { self.layoutManager() } {
+            Some(lm) => lm,
+            None => return,
+        };
+        let text_container = match unsafe { self.textContainer() } {
+            Some(tc) => tc,
+            None => return,
+        };
+
+        let tc_origin = self.textContainerOrigin();
+        let container_width = text_container.containerSize().width;
+        let null_ptr = std::ptr::null_mut::<objc2_foundation::NSRange>();
+
+        for info in &infos {
+            if info.start_utf16 >= info.end_utf16 {
+                continue;
+            }
+
+            // ── Map UTF-16 offsets to glyph indices ──────────────────────────
+            let first_glyph: usize = unsafe {
+                msg_send![&*layout_manager,
+                    glyphIndexForCharacterAtIndex: info.start_utf16]
+            };
+            let last_char = info.end_utf16.saturating_sub(1);
+            let last_glyph: usize = unsafe {
+                msg_send![&*layout_manager,
+                    glyphIndexForCharacterAtIndex: last_char]
+            };
+            if first_glyph == usize::MAX || last_glyph == usize::MAX {
+                continue;
+            }
+
+            // ── Get line fragment rects ───────────────────────────────────────
+            let top_frag: NSRect = unsafe {
+                msg_send![&*layout_manager,
+                    lineFragmentRectForGlyphAtIndex: first_glyph,
+                    effectiveRange: null_ptr]
+            };
+            let bot_frag: NSRect = unsafe {
+                msg_send![&*layout_manager,
+                    lineFragmentRectForGlyphAtIndex: last_glyph,
+                    effectiveRange: null_ptr]
+            };
+            if top_frag.size.height == 0.0 || bot_frag.size.height == 0.0 {
+                continue;
+            }
+
+            // ── Build full-width block rect (8pt vertical padding) ────────────
+            let block_y = top_frag.origin.y + tc_origin.y - 8.0;
+            let block_bottom = bot_frag.origin.y + bot_frag.size.height + tc_origin.y + 8.0;
+            let block_rect = NSRect::new(
+                NSPoint::new(tc_origin.x, block_y),
+                NSSize::new(container_width, block_bottom - block_y),
+            );
+
+            // ── Fill background ───────────────────────────────────────────────
+            let path = unsafe {
+                NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(block_rect, 6.0, 6.0)
+            };
+            NSColor::controlBackgroundColor().setFill();
+            path.fill();
+
+            // ── Draw border ───────────────────────────────────────────────────
+            let border_path = unsafe {
+                NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(block_rect, 6.0, 6.0)
+            };
+            border_path.setLineWidth(0.5);
+            NSColor::separatorColor().setStroke();
+            border_path.stroke();
+
+            // ── Draw SF Symbol copy icon (14×14pt, 6pt from bottom-right) ────
+            let icon_x = block_rect.origin.x + block_rect.size.width - 20.0;
+            let icon_y = block_rect.origin.y + 6.0;
+            let icon_rect = NSRect::new(
+                NSPoint::new(icon_x, icon_y),
+                NSSize::new(14.0, 14.0),
+            );
+            unsafe {
+                let name = NSString::from_str("doc.on.doc");
+                if let Some(icon) = NSImage::imageWithSystemSymbolName_accessibilityDescription(
+                    &name, None,
+                ) {
+                    NSColor::secondaryLabelColor().set();
+                    icon.drawInRect(icon_rect);
+                }
+            }
+
+            // Store rect for hit-testing in mouseDown:.
+            self.ivars().copy_button_rects
+                .borrow_mut()
+                .push((icon_rect, info.text.clone()));
         }
     }
 }
