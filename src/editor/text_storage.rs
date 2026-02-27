@@ -7,7 +7,7 @@ use objc2_foundation::{
     MainThreadMarker, NSInteger, NSObject, NSObjectProtocol, NSRange,
 };
 
-use crate::editor::apply::apply_attribute_runs;
+use crate::editor::apply::{apply_attribute_runs, collect_code_block_infos, CodeBlockInfo};
 use crate::editor::renderer::compute_attribute_runs;
 use crate::markdown::parser::{parse, MarkdownSpan};
 use crate::ui::appearance::ColorScheme;
@@ -28,6 +28,9 @@ pub struct MditEditorDelegateIvars {
     /// UTF-16 character offsets of H1/H2 heading paragraph starts, updated
     /// after every re-parse. Read by MditTextView to draw separator lines.
     heading_sep_positions: RefCell<Vec<usize>>,
+    /// Code block metadata updated after every re-parse.
+    /// Read by MditTextView to draw the visual overlay and copy-to-clipboard.
+    code_block_infos: RefCell<Vec<CodeBlockInfo>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -79,6 +82,11 @@ define_class!(
             let positions = apply_attribute_runs(text_storage, &text, &runs, &scheme);
             self.ivars().applying.set(false);
             *self.ivars().heading_sep_positions.borrow_mut() = positions;
+            let infos = {
+                let spans_ref = self.ivars().spans.borrow();
+                collect_code_block_infos(&spans_ref, &text)
+            };
+            *self.ivars().code_block_infos.borrow_mut() = infos;
         }
     }
 );
@@ -96,6 +104,7 @@ impl MditEditorDelegate {
             scheme: Cell::new(scheme),
             applying: Cell::new(false),
             heading_sep_positions: RefCell::new(Vec::new()),
+            code_block_infos: RefCell::new(Vec::new()),
         });
         unsafe { msg_send![super(this), init] }
     }
@@ -145,11 +154,22 @@ impl MditEditorDelegate {
         let positions = apply_attribute_runs(storage, &text, &runs, &scheme);
         self.ivars().applying.set(false);
         *self.ivars().heading_sep_positions.borrow_mut() = positions;
+        let infos = {
+            let spans_ref = self.ivars().spans.borrow();
+            collect_code_block_infos(&spans_ref, &text)
+        };
+        *self.ivars().code_block_infos.borrow_mut() = infos;
     }
 
     /// Returns the UTF-16 character offsets of H1/H2 heading paragraph starts.
     /// Used by `MditTextView` to draw separator lines above headings.
     pub fn heading_sep_positions(&self) -> Vec<usize> {
         self.ivars().heading_sep_positions.borrow().clone()
+    }
+
+    /// Returns the code block metadata for all fenced code blocks in the document.
+    /// Used by `MditTextView` to draw the visual overlay.
+    pub fn code_block_infos(&self) -> Vec<CodeBlockInfo> {
+        self.ivars().code_block_infos.borrow().clone()
     }
 }
