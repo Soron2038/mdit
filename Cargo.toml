@@ -35,6 +35,9 @@ objc2-app-kit = { version = "0.3.2", features = [
     "NSTextAttachment",
     "NSAttributedString", "NSAppearance",
     "NSTextField", "NSOpenPanel", "NSSavePanel", "NSAlert", "NSBox",
+    "NSBezierPath",
+    "NSPasteboard",
+    "NSImage",
 ] }
 objc2-web-kit = { version = "0.3.2", features = [
     "WKWebView",
