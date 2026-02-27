@@ -1,4 +1,4 @@
-pub mod toolbar;
+pub mod sidebar;
 pub mod appearance;
-pub mod tab_bar;   // NEU
+pub mod tab_bar;
 pub mod path_bar;

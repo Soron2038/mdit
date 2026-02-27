@@ -18,8 +18,8 @@ use mdit::editor::document_state::DocumentState;
 use mdit::menu::build_main_menu;
 use mdit::ui::appearance::ColorScheme;
 use mdit::ui::path_bar::PathBar;
+use mdit::ui::sidebar::{FormattingSidebar, SIDEBAR_W};
 use mdit::ui::tab_bar::{tab_label, TabBar};
-use mdit::ui::toolbar::FloatingToolbar;
 
 // ---------------------------------------------------------------------------
 // Layout constants
@@ -35,7 +35,7 @@ const PATH_H: f64 = 22.0;
 #[derive(Default)]
 struct AppDelegateIvars {
     window:       OnceCell<Retained<NSWindow>>,
-    toolbar:      OnceCell<FloatingToolbar>,
+    sidebar:      OnceCell<FormattingSidebar>,
     tab_bar:      OnceCell<TabBar>,
     path_bar:     OnceCell<PathBar>,
     tabs:         RefCell<Vec<DocumentState>>,
@@ -85,16 +85,23 @@ define_class!(
             let path_bar = PathBar::new(mtm, w);
             content.addSubview(path_bar.view());
 
-            // Floating toolbar
             let target: &AnyObject = unsafe {
                 &*(self as *const AppDelegate as *const AnyObject)
             };
-            let toolbar = FloatingToolbar::new(mtm, target);
+
+            // Sidebar — permanent left-margin formatting toolbar
+            let content_h = (h - TAB_H - PATH_H).max(0.0);
+            let sidebar = FormattingSidebar::new(mtm, content_h, target);
+            sidebar.view().setFrame(NSRect::new(
+                NSPoint::new(0.0, PATH_H),
+                NSSize::new(SIDEBAR_W, content_h),
+            ));
+            content.addSubview(sidebar.view());
 
             self.ivars().window.set(window).unwrap();
             let _ = self.ivars().tab_bar.set(tab_bar);
             let _ = self.ivars().path_bar.set(path_bar);
-            let _ = self.ivars().toolbar.set(toolbar);
+            let _ = self.ivars().sidebar.set(sidebar);
 
             app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
             #[allow(deprecated)]
@@ -133,6 +140,10 @@ define_class!(
             }
             if let Some(pb) = self.ivars().path_bar.get() {
                 pb.set_width(w);
+            }
+            if let Some(sb) = self.ivars().sidebar.get() {
+                let content_h = (h - TAB_H - PATH_H).max(0.0);
+                sb.set_height(content_h);
             }
             let frame = self.content_frame();
             let idx = self.ivars().active_index.get();
@@ -323,6 +334,36 @@ define_class!(
                 prepend_line(&tv, "### ");
             }
         }
+
+        #[unsafe(method(applyNormal:))]
+        fn apply_normal(&self, _sender: &AnyObject) {
+            if let Some(tv) = self.active_text_view() {
+                strip_line_prefix(&tv);
+            }
+        }
+
+        #[unsafe(method(applyBlockquote:))]
+        fn apply_blockquote(&self, _sender: &AnyObject) {
+            if let Some(tv) = self.active_text_view() {
+                prepend_line(&tv, "> ");
+            }
+        }
+
+        #[unsafe(method(applyCodeBlock:))]
+        fn apply_code_block(&self, _sender: &AnyObject) {
+            if let Some(tv) = self.active_text_view() {
+                insert_code_block(&tv);
+            }
+        }
+
+        #[unsafe(method(applyHRule:))]
+        fn apply_h_rule(&self, _sender: &AnyObject) {
+            if let Some(tv) = self.active_text_view() {
+                let caret: NSRange = unsafe { msg_send![&*tv, selectedRange] };
+                let ns = NSString::from_str("\n---\n");
+                unsafe { msg_send![&*tv, insertText: &*ns, replacementRange: caret] }
+            }
+        }
     }
 
     // ── NSTextViewDelegate: show/hide toolbar on selection ──────────────────
@@ -348,28 +389,9 @@ define_class!(
 
     unsafe impl NSTextViewDelegate for AppDelegate {
         #[unsafe(method(textViewDidChangeSelection:))]
-        fn text_view_did_change_selection(&self, notification: &NSNotification) {
-            let Some(obj) = notification.object() else { return };
-            let Ok(tv) = obj.downcast::<NSTextView>() else { return };
-
-            let sel_range: NSRange = unsafe { msg_send![&*tv, selectedRange] };
-
-            let Some(toolbar) = self.ivars().toolbar.get() else { return };
-
-            if sel_range.length > 0 {
-                // firstRectForCharacterRange:actualRange: returns screen coords.
-                let null_ptr = std::ptr::null_mut::<NSRange>();
-                let rect: NSRect = unsafe {
-                    msg_send![
-                        &*tv,
-                        firstRectForCharacterRange: sel_range,
-                        actualRange: null_ptr
-                    ]
-                };
-                toolbar.show_near_rect(rect);
-            } else {
-                toolbar.hide();
-            }
+        fn text_view_did_change_selection(&self, _notification: &NSNotification) {
+            // Selection changes are handled by the sidebar (always visible).
+            // No floating toolbar to show or hide.
         }
     }
 );
@@ -380,15 +402,15 @@ impl AppDelegate {
         unsafe { msg_send![super(this), init] }
     }
 
-    /// Frame for the active NSScrollView (between TabBar and PathBar).
+    /// Frame for the active NSScrollView (between TabBar and PathBar, right of Sidebar).
     fn content_frame(&self) -> NSRect {
         let Some(win) = self.ivars().window.get() else { return NSRect::ZERO };
         let bounds = unsafe { win.contentView().unwrap().bounds() };
         let h = bounds.size.height;
         let w = bounds.size.width;
         NSRect::new(
-            NSPoint::new(0.0, PATH_H),
-            NSSize::new(w, (h - TAB_H - PATH_H).max(0.0)),
+            NSPoint::new(SIDEBAR_W, PATH_H),
+            NSSize::new((w - SIDEBAR_W).max(0.0), (h - TAB_H - PATH_H).max(0.0)),
         )
     }
 
@@ -453,9 +475,6 @@ impl AppDelegate {
 
         self.rebuild_tab_bar();
         self.update_text_container_inset();
-        if let Some(tb) = self.ivars().toolbar.get() {
-            tb.hide();
-        }
     }
 
     /// Create a new empty tab and activate it.
@@ -494,6 +513,12 @@ impl AppDelegate {
                     tab.editor_delegate.reapply(&storage);
                 }
             }
+        }
+        if let Some(sb) = self.ivars().sidebar.get() {
+            sb.apply_separator_color();
+        }
+        if let Some(tb) = self.ivars().tab_bar.get() {
+            tb.apply_colors();
         }
     }
 
@@ -628,11 +653,11 @@ impl AppDelegate {
     /// Compute and apply the horizontal text container inset for the active tab.
     fn update_text_container_inset(&self) {
         let Some(win) = self.ivars().window.get() else { return };
-        let win_width = win.frame().size.width;
+        let editor_width = (win.frame().size.width - SIDEBAR_W).max(0.0);
         let max_text_width = 700.0_f64;
         let min_padding = 40.0_f64;
-        let h_inset = if win_width > max_text_width + 2.0 * min_padding {
-            (win_width - max_text_width) / 2.0
+        let h_inset = if editor_width > max_text_width + 2.0 * min_padding {
+            (editor_width - max_text_width) / 2.0
         } else {
             min_padding
         };
@@ -699,6 +724,56 @@ fn prepend_line(tv: &NSTextView, prefix: &str) {
     let insert_at = NSRange { location: line_range.location, length: 0 };
     let ns = NSString::from_str(prefix);
     unsafe { msg_send![tv, insertText: &*ns, replacementRange: insert_at] }
+}
+
+/// Strip a leading heading/blockquote prefix (`# `, `## `, `### `, `> `)
+/// from the line containing the caret (applyNormal:).
+fn strip_line_prefix(tv: &NSTextView) {
+    let caret: NSRange = unsafe { msg_send![tv, selectedRange] };
+    let Some(storage) = (unsafe { tv.textStorage() }) else { return };
+    let ns_str = storage.string();
+    let point = NSRange { location: caret.location, length: 0 };
+    let line_range: NSRange = ns_str.lineRangeForRange(point);
+    let line_text = ns_str.substringWithRange(line_range).to_string();
+
+    // Longest match first so "### " is caught before "# ".
+    let prefix_len: usize = if line_text.starts_with("### ") {
+        4
+    } else if line_text.starts_with("## ") {
+        3
+    } else if line_text.starts_with("# ") {
+        2
+    } else if line_text.starts_with("> ") {
+        2
+    } else {
+        0
+    };
+
+    if prefix_len == 0 { return; }
+
+    // All prefix characters are ASCII (1 UTF-16 unit each).
+    let remove_range = NSRange {
+        location: line_range.location,
+        length: prefix_len,
+    };
+    let empty = NSString::from_str("");
+    unsafe { msg_send![tv, insertText: &*empty, replacementRange: remove_range] }
+}
+
+/// Wrap the current selection in a fenced code block.
+/// If nothing is selected, insert an empty fence and position the cursor inside.
+fn insert_code_block(tv: &NSTextView) {
+    let range: NSRange = unsafe { msg_send![tv, selectedRange] };
+    let Some(storage) = (unsafe { tv.textStorage() }) else { return };
+    let selected = storage.string().substringWithRange(range).to_string();
+    let fence = "```";
+    let text = if selected.is_empty() {
+        format!("{}\n\n{}", fence, fence)
+    } else {
+        format!("{}\n{}\n{}", fence, selected, fence)
+    };
+    let ns = NSString::from_str(&text);
+    unsafe { msg_send![tv, insertText: &*ns, replacementRange: range] }
 }
 
 // ---------------------------------------------------------------------------
