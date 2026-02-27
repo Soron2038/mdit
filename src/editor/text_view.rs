@@ -216,7 +216,9 @@ impl MditTextView {
                 msg_send![&*layout_manager,
                     glyphIndexForCharacterAtIndex: last_char]
             };
-            if first_glyph == usize::MAX || last_glyph == usize::MAX {
+            // NSNotFound = NSIntegerMax = 0x7FFFFFFFFFFFFFFF, NOT usize::MAX.
+            // Use usize::MAX/2 as sentinel to catch both values safely.
+            if first_glyph >= usize::MAX / 2 || last_glyph >= usize::MAX / 2 {
                 continue;
             }
 
@@ -259,11 +261,28 @@ impl MditTextView {
     /// Called from drawViewBackgroundInRect: — BEFORE glyphs are drawn,
     /// so the fill is correctly behind the text.
     fn draw_code_block_fills(&self) {
-        for (block_rect, _, _) in self.code_block_rects() {
+        let rects = self.code_block_rects();
+        if rects.is_empty() {
+            return;
+        }
+        // Use the scheme's code_block_bg color (e.g. light lavender-gray in light mode)
+        // rather than controlBackgroundColor, which is nearly identical to the editor
+        // background and therefore invisible.
+        let fill_color = {
+            let delegate_ref = self.ivars().delegate.borrow();
+            match delegate_ref.as_ref() {
+                Some(d) => {
+                    let (r, g, b) = d.scheme().code_block_bg;
+                    NSColor::colorWithRed_green_blue_alpha(r, g, b, 1.0)
+                }
+                None => return,
+            }
+        };
+        for (block_rect, _, _) in rects {
             let path = unsafe {
                 NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(block_rect, 6.0, 6.0)
             };
-            NSColor::controlBackgroundColor().setFill();
+            fill_color.setFill();
             path.fill();
         }
     }
@@ -275,23 +294,28 @@ impl MditTextView {
         // Clear previous frame's hit rects.
         self.ivars().copy_button_rects.borrow_mut().clear();
 
-        for (block_rect, icon_rect, code_text) in self.code_block_rects() {
+        let rects = self.code_block_rects();
+
+        for (block_rect, icon_rect, code_text) in rects {
+
             // ── Draw border ───────────────────────────────────────────────────
             let border_path = unsafe {
                 NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(block_rect, 6.0, 6.0)
             };
-            border_path.setLineWidth(0.5);
+            border_path.setLineWidth(1.0);
             NSColor::separatorColor().setStroke();
             border_path.stroke();
 
             // ── Draw SF Symbol copy icon (14×14pt) ────────────────────────────
-            // SF Symbols are template images — they render correctly in both
-            // light and dark mode without explicit tinting via NSColor::set().
+            // Explicitly set the label color so the template image renders
+            // visibly in both light and dark mode (without this, it may use
+            // whatever fill color was last set, which could be white/invisible).
             unsafe {
                 let name = NSString::from_str("doc.on.doc");
                 if let Some(icon) = NSImage::imageWithSystemSymbolName_accessibilityDescription(
                     &name, None,
                 ) {
+                    NSColor::secondaryLabelColor().set();
                     icon.drawInRect(icon_rect);
                 }
             }
