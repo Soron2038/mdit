@@ -169,7 +169,7 @@ fn collect_runs(
                 // Start of closing fence = start of last line in text[open_end..end].
                 // "Last line" starts right after the second-to-last \n.
                 let suffix = &text[open_end..end];
-                let close_start = open_end + if suffix.len() > 1 {
+                let close_start = open_end + if !suffix.is_empty() {
                     suffix[..suffix.len() - 1]
                         .rfind('\n')
                         .map(|p| p + 1)

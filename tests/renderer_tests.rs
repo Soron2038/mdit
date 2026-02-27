@@ -248,6 +248,48 @@ fn closing_fence_visible_when_cursor_on_it() {
 }
 
 #[test]
+fn cursor_on_content_keeps_fences_hidden() {
+    // Cursor in the code body must NOT reveal either fence.
+    let text = "```rust\nlet x = 1;\n```\n";
+    let spans = parse(text);
+    // cursor at byte 10 — inside the content "let x = 1;\n" (bytes 8..19)
+    let runs = compute_attribute_runs(text, &spans, Some(10));
+
+    let opening = runs.iter().find(|r| r.range.0 == 0)
+        .expect("no run at byte 0");
+    assert!(opening.attrs.contains(&TextAttribute::Hidden),
+        "opening fence must stay hidden when cursor is on content");
+
+    let closing = runs.iter().find(|r| r.range.0 == 19)
+        .expect("no run at byte 19");
+    assert!(closing.attrs.contains(&TextAttribute::Hidden),
+        "closing fence must stay hidden when cursor is on content");
+}
+
+#[test]
+fn empty_body_code_block_no_content_run() {
+    // "```\n" = bytes 0..4, no content, "```\n" = bytes 4..8
+    let text = "```\n```\n";
+    let spans = parse(text);
+    let runs = compute_attribute_runs(text, &spans, None);
+
+    // Both fences must be hidden (no language, fence is still just "```\n").
+    let opening = runs.iter().find(|r| r.range.0 == 0)
+        .expect("no run at byte 0");
+    assert!(opening.attrs.contains(&TextAttribute::Hidden),
+        "opening fence of empty block must be hidden");
+
+    let closing = runs.iter().find(|r| r.range.0 == 4)
+        .expect("no run at byte 4");
+    assert!(closing.attrs.contains(&TextAttribute::Hidden),
+        "closing fence of empty block must be hidden");
+
+    // No Monospace run should exist (no code content between the fences).
+    let has_monospace = runs.iter().any(|r| r.attrs.contains(&TextAttribute::Monospace));
+    assert!(!has_monospace, "empty block must have no Monospace run");
+}
+
+#[test]
 fn code_block_code_content_captured() {
     let text = "```rust\nlet x = 1;\n```\n";
     let spans = mdit::markdown::parser::parse(text);
