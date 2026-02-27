@@ -4,8 +4,9 @@ use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2::{define_class, msg_send, DefinedClass, MainThreadOnly};
 use objc2_app_kit::{
-    NSAutoresizingMaskOptions, NSBezierPath, NSColor, NSFont, NSFontWeightRegular, NSImage,
-    NSPasteboard, NSPasteboardTypeString, NSRectFill, NSScrollView, NSTextView,
+    NSAutoresizingMaskOptions, NSBezierPath, NSColor, NSFont, NSFontAttributeName,
+    NSFontWeightRegular, NSForegroundColorAttributeName, NSImage, NSPasteboard,
+    NSPasteboardTypeString, NSRectFill, NSScrollView, NSTextView,
 };
 use objc2_foundation::{MainThreadMarker, NSObjectProtocol, NSPoint, NSRect, NSSize, NSString};
 
@@ -201,10 +202,10 @@ impl MditTextView {
         }
     }
 
-    /// Shared geometry: maps code block metadata → (block_rect, icon_rect, code_text).
+    /// Shared geometry: maps code block metadata → (block_rect, icon_rect, code_text, language).
     /// Called by both draw_code_block_fills() and draw_code_blocks() to avoid
     /// duplicating the glyph-index lookup logic.
-    fn code_block_rects(&self) -> Vec<(NSRect, NSRect, String)> {
+    fn code_block_rects(&self) -> Vec<(NSRect, NSRect, String, String)> {
         let delegate_ref = self.ivars().delegate.borrow();
         let delegate = match delegate_ref.as_ref() {
             Some(d) => d,
@@ -280,7 +281,7 @@ impl MditTextView {
                 NSSize::new(14.0, 14.0),
             );
 
-            result.push((block_rect, icon_rect, info.text.clone()));
+            result.push((block_rect, icon_rect, info.text.clone(), info.language.clone()));
         }
         result
     }
@@ -306,7 +307,7 @@ impl MditTextView {
                 None => return,
             }
         };
-        for (block_rect, _, _) in rects {
+        for (block_rect, _, _, _) in rects {
             let path = unsafe {
                 NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(block_rect, 6.0, 6.0)
             };
@@ -324,7 +325,7 @@ impl MditTextView {
 
         let rects = self.code_block_rects();
 
-        for (index, (block_rect, icon_rect, code_text)) in rects.into_iter().enumerate() {
+        for (index, (block_rect, icon_rect, code_text, language)) in rects.into_iter().enumerate() {
 
             // ── Draw border ───────────────────────────────────────────────────
             let border_path = unsafe {
@@ -333,6 +334,65 @@ impl MditTextView {
             border_path.setLineWidth(1.0);
             NSColor::separatorColor().setStroke();
             border_path.stroke();
+
+            // ── Draw language tag in fieldset style (gap in top border) ──────────────
+            if !language.is_empty() {
+                let ns_lang = NSString::from_str(&language);
+
+                // Build NSMutableAttributedString via msg_send! (avoids NSDictionary complexity).
+                let mattr: Retained<objc2::runtime::AnyObject> = unsafe {
+                    let cls = objc2::runtime::AnyClass::get(c"NSMutableAttributedString")
+                        .expect("NSMutableAttributedString class not found");
+                    let obj: *mut objc2::runtime::AnyObject = msg_send![cls, alloc];
+                    let obj: *mut objc2::runtime::AnyObject =
+                        msg_send![obj, initWithString: &*ns_lang];
+                    Retained::retain(obj)
+                        .expect("initWithString returned nil")
+                };
+
+                let tag_len = language.encode_utf16().count();
+                let tag_range = objc2_foundation::NSRange { location: 0, length: tag_len };
+                let tag_font = unsafe {
+                    NSFont::monospacedSystemFontOfSize_weight(10.0, NSFontWeightRegular)
+                };
+                let tag_color = NSColor::secondaryLabelColor();
+                unsafe {
+                    let font_obj: &objc2::runtime::AnyObject = &**tag_font;
+                    let color_obj: &objc2::runtime::AnyObject = &**tag_color;
+                    let _: () = msg_send![&*mattr,
+                        addAttribute: NSFontAttributeName,
+                        value: font_obj,
+                        range: tag_range];
+                    let _: () = msg_send![&*mattr,
+                        addAttribute: NSForegroundColorAttributeName,
+                        value: color_obj,
+                        range: tag_range];
+                }
+
+                // Measure the rendered text size.
+                let tag_size: NSSize = unsafe { msg_send![&*mattr, size] };
+
+                // Gap: starts 14pt from left edge, 4pt padding each side of text.
+                let gap_x = block_rect.origin.x + 14.0;
+                let gap_w = tag_size.width + 8.0;
+                let gap_y = block_rect.origin.y - tag_size.height / 2.0 - 1.0;
+                let gap_h = tag_size.height + 2.0;
+
+                // Erase the border line in the gap with the view's background color.
+                let bg = unsafe { self.backgroundColor() };
+                bg.setFill();
+                NSRectFill(NSRect::new(
+                    NSPoint::new(gap_x, gap_y),
+                    NSSize::new(gap_w, gap_h),
+                ));
+
+                // Draw the attributed string inside the gap.
+                let text_rect = NSRect::new(
+                    NSPoint::new(gap_x + 4.0, gap_y + 1.0),
+                    NSSize::new(tag_size.width, tag_size.height),
+                );
+                let _: () = unsafe { msg_send![&*mattr, drawInRect: text_rect] };
+            }
 
             // ── Draw SF Symbol copy icon (14×14pt) ────────────────────────────
             // Show green checkmark for 1.5s after a copy, then revert to copy icon.
