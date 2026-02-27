@@ -14,7 +14,7 @@ pub enum NodeKind {
     Math,
     Link { url: String },
     Heading { level: u8 },
-    CodeBlock { language: String },
+    CodeBlock { language: String, code: String },
     Table,
     Footnote,
     Strikethrough,
@@ -121,6 +121,7 @@ fn node_to_span<'a>(
         NodeValue::Heading(h) => NodeKind::Heading { level: h.level },
         NodeValue::CodeBlock(cb) => NodeKind::CodeBlock {
             language: cb.info.trim().to_string(),
+            code: cb.literal.trim_end_matches('\n').to_string(),
         },
         NodeValue::Table(_) => NodeKind::Table,
         NodeValue::FootnoteDefinition(_) | NodeValue::FootnoteReference(_) => NodeKind::Footnote,

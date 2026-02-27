@@ -197,3 +197,14 @@ fn h3_content_does_not_get_heading_separator() {
     let sep_run = runs.iter().find(|r| r.attrs.contains(&TextAttribute::HeadingSeparator));
     assert!(sep_run.is_none(), "HeadingSeparator must not appear on H3");
 }
+
+#[test]
+fn code_block_code_content_captured() {
+    let text = "```rust\nlet x = 1;\n```\n";
+    let spans = mdit::markdown::parser::parse(text);
+    let cb = spans.iter().find(|s| matches!(&s.kind, mdit::markdown::parser::NodeKind::CodeBlock { .. }));
+    assert!(cb.is_some(), "expected a CodeBlock span");
+    if let mdit::markdown::parser::NodeKind::CodeBlock { code, .. } = &cb.unwrap().kind {
+        assert_eq!(code, "let x = 1;", "code content should be extracted without fences");
+    }
+}
