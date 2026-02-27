@@ -28,3 +28,21 @@ fn no_code_blocks_returns_empty() {
     let infos = collect_code_block_infos(&spans, text);
     assert!(infos.is_empty());
 }
+
+#[test]
+fn code_block_language_captured() {
+    let text = "```rust\nlet x = 1;\n```\n";
+    let spans = parse(text);
+    let infos = collect_code_block_infos(&spans, text);
+    assert_eq!(infos.len(), 1);
+    assert_eq!(infos[0].language, "rust");
+}
+
+#[test]
+fn code_block_without_language_has_empty_language() {
+    let text = "```\nplain text\n```\n";
+    let spans = parse(text);
+    let infos = collect_code_block_infos(&spans, text);
+    assert_eq!(infos.len(), 1);
+    assert_eq!(infos[0].language, "");
+}

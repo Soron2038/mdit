@@ -31,6 +31,8 @@ pub struct CodeBlockInfo {
     pub end_utf16: usize,
     /// The raw code content (without fences, trailing newline stripped).
     pub text: String,
+    /// The language tag from the opening fence (e.g. "rust"), or empty string.
+    pub language: String,
 }
 
 /// Walk `spans` to find all `CodeBlock` nodes, convert their byte offsets
@@ -43,11 +45,12 @@ pub fn collect_code_block_infos(spans: &[MarkdownSpan], text: &str) -> Vec<CodeB
 
 fn collect_recursive(spans: &[MarkdownSpan], text: &str, out: &mut Vec<CodeBlockInfo>) {
     for span in spans {
-        if let NodeKind::CodeBlock { code, .. } = &span.kind {
+        if let NodeKind::CodeBlock { code, language } = &span.kind {
             out.push(CodeBlockInfo {
                 start_utf16: byte_to_utf16(text, span.source_range.0),
-                end_utf16: byte_to_utf16(text, span.source_range.1),
-                text: code.clone(),
+                end_utf16:   byte_to_utf16(text, span.source_range.1),
+                text:        code.clone(),
+                language:    language.clone(),
             });
         }
         collect_recursive(&span.children, text, out);
