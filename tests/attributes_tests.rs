@@ -65,3 +65,11 @@ fn h3_does_not_get_heading_separator() {
     let attrs = AttributeSet::for_heading(3);
     assert!(!attrs.contains(&TextAttribute::HeadingSeparator));
 }
+
+#[test]
+fn code_block_gets_monospace_no_bg_color() {
+    let attrs = AttributeSet::for_code_block();
+    assert!(attrs.contains(&TextAttribute::Monospace));
+    // Background color is now drawn via NSBezierPath overlay, not NSAttributedString.
+    assert!(!attrs.contains(&TextAttribute::BackgroundColor("code_block_bg")));
+}

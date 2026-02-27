@@ -91,7 +91,6 @@ impl AttributeSet {
     pub fn for_code_block() -> Self {
         Self::new(vec![
             TextAttribute::Monospace,
-            TextAttribute::BackgroundColor("code_block_bg"),
             TextAttribute::ForegroundColor("code_fg"),
         ])
     }
