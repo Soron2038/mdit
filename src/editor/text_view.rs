@@ -43,6 +43,37 @@ define_class!(
             self.draw_code_blocks();
             self.draw_heading_separators();
         }
+
+        #[unsafe(method(mouseDown:))]
+        fn mouse_down(&self, event: &objc2_app_kit::NSEvent) {
+            // Convert window coords → view coords.
+            let window_point = unsafe { event.locationInWindow() };
+            let view_point: NSPoint = unsafe {
+                self.convertPoint_fromView(window_point, None)
+            };
+
+            // Check if click landed on any copy-button icon.
+            let rects = self.ivars().copy_button_rects.borrow();
+            for (rect, code_text) in rects.iter() {
+                let in_rect = view_point.x >= rect.origin.x
+                    && view_point.x <= rect.origin.x + rect.size.width
+                    && view_point.y >= rect.origin.y
+                    && view_point.y <= rect.origin.y + rect.size.height;
+                if in_rect {
+                    unsafe {
+                        let pb = NSPasteboard::generalPasteboard();
+                        pb.clearContents();
+                        let ns_str = NSString::from_str(code_text);
+                        pb.setString_forType(&ns_str, NSPasteboardTypeString);
+                    }
+                    return; // Consume event — don't pass to text editing.
+                }
+            }
+            drop(rects);
+
+            // Not a copy-button click — pass to standard text-view handling.
+            let _: () = unsafe { msg_send![super(self), mouseDown: event] };
+        }
     }
 );
 
