@@ -316,35 +316,35 @@ define_class!(
         #[unsafe(method(applyH1:))]
         fn apply_h1(&self, _sender: &AnyObject) {
             if let Some(tv) = self.active_text_view() {
-                prepend_line(&tv, "# ");
+                apply_block_format(&tv, "# ");
             }
         }
 
         #[unsafe(method(applyH2:))]
         fn apply_h2(&self, _sender: &AnyObject) {
             if let Some(tv) = self.active_text_view() {
-                prepend_line(&tv, "## ");
+                apply_block_format(&tv, "## ");
             }
         }
 
         #[unsafe(method(applyH3:))]
         fn apply_h3(&self, _sender: &AnyObject) {
             if let Some(tv) = self.active_text_view() {
-                prepend_line(&tv, "### ");
+                apply_block_format(&tv, "### ");
             }
         }
 
         #[unsafe(method(applyNormal:))]
         fn apply_normal(&self, _sender: &AnyObject) {
             if let Some(tv) = self.active_text_view() {
-                strip_line_prefix(&tv);
+                apply_block_format(&tv, "");
             }
         }
 
         #[unsafe(method(applyBlockquote:))]
         fn apply_blockquote(&self, _sender: &AnyObject) {
             if let Some(tv) = self.active_text_view() {
-                prepend_line(&tv, "> ");
+                apply_block_format(&tv, "> ");
             }
         }
 
@@ -746,68 +746,23 @@ fn wrap_selection(tv: &NSTextView, prefix: &str, suffix: &str) {
     unsafe { msg_send![tv, insertText: &*ns, replacementRange: range] }
 }
 
-/// Insert `prefix` at the beginning of the line that contains the caret.
+/// Apply a block-level format to the line containing the caret.
 ///
-/// Works on the NSString level so it correctly handles multi-byte content.
-fn prepend_line(tv: &NSTextView, prefix: &str) {
+/// Uses the pure `set_block_format()` under the hood: same prefix toggles
+/// off, different prefix switches, empty prefix strips (Normal).
+fn apply_block_format(tv: &NSTextView, desired_prefix: &str) {
     let caret: NSRange = unsafe { msg_send![tv, selectedRange] };
     let Some(storage) = (unsafe { tv.textStorage() }) else {
         return;
     };
     let ns_str = storage.string();
-    // NSString.lineRangeForRange: gives us the UTF-16 range of the whole line.
-    let point = NSRange {
-        location: caret.location,
-        length: 0,
-    };
-    let line_range: NSRange = ns_str.lineRangeForRange(point);
-    let insert_at = NSRange {
-        location: line_range.location,
-        length: 0,
-    };
-    let ns = NSString::from_str(prefix);
-    unsafe { msg_send![tv, insertText: &*ns, replacementRange: insert_at] }
-}
-
-/// Strip a leading heading/blockquote prefix (`# `, `## `, `### `, `> `)
-/// from the line containing the caret (applyNormal:).
-fn strip_line_prefix(tv: &NSTextView) {
-    let caret: NSRange = unsafe { msg_send![tv, selectedRange] };
-    let Some(storage) = (unsafe { tv.textStorage() }) else {
-        return;
-    };
-    let ns_str = storage.string();
-    let point = NSRange {
-        location: caret.location,
-        length: 0,
-    };
+    let point = NSRange { location: caret.location, length: 0 };
     let line_range: NSRange = ns_str.lineRangeForRange(point);
     let line_text = ns_str.substringWithRange(line_range).to_string();
 
-    // Longest match first so "### " is caught before "# ".
-    let prefix_len: usize = if line_text.starts_with("### ") {
-        4
-    } else if line_text.starts_with("## ") {
-        3
-    } else if line_text.starts_with("# ") {
-        2
-    } else if line_text.starts_with("> ") {
-        2
-    } else {
-        0
-    };
-
-    if prefix_len == 0 {
-        return;
-    }
-
-    // All prefix characters are ASCII (1 UTF-16 unit each).
-    let remove_range = NSRange {
-        location: line_range.location,
-        length: prefix_len,
-    };
-    let empty = NSString::from_str("");
-    unsafe { msg_send![tv, insertText: &*empty, replacementRange: remove_range] }
+    let new_line = mdit::editor::formatting::set_block_format(&line_text, desired_prefix);
+    let ns = NSString::from_str(&new_line);
+    unsafe { msg_send![tv, insertText: &*ns, replacementRange: line_range] }
 }
 
 /// Wrap the current selection in a fenced code block.
