@@ -162,3 +162,89 @@ fn wrap_no_layers() {
 fn wrap_one_layer() {
     assert_eq!(wrap_with_layers("hello", &["**"]), "**hello**");
 }
+
+// ── nested marker scenarios ──────────────────────────────────────────────
+
+#[test]
+fn find_bold_and_italic_nested() {
+    // Text is **_hello_** — selection covers "hello"
+    // Layers are returned innermost-first: "_" then "**"
+    let (layers, pre, post) = find_surrounding_markers("**_", "_**");
+    assert_eq!(layers, vec!["_", "**"]);
+    assert_eq!(pre, 3);
+    assert_eq!(post, 3);
+}
+
+#[test]
+fn find_italic_and_bold_nested() {
+    // Text is _**hello**_ — selection covers "hello"
+    // Layers are returned innermost-first: "**" then "_"
+    let (layers, pre, post) = find_surrounding_markers("_**", "**_");
+    assert_eq!(layers, vec!["**", "_"]);
+    assert_eq!(pre, 3);
+    assert_eq!(post, 3);
+}
+
+#[test]
+fn toggle_remove_inner_from_nested() {
+    // layers = ["**", "_"], toggle "_" → ["**"]
+    let result = toggle_marker_in_layers(&["**", "_"], "_");
+    assert_eq!(result, vec!["**"]);
+}
+
+#[test]
+fn toggle_remove_outer_from_nested() {
+    // layers = ["**", "_"], toggle "**" → ["_"]
+    let result = toggle_marker_in_layers(&["**", "_"], "**");
+    assert_eq!(result, vec!["_"]);
+}
+
+#[test]
+fn toggle_add_to_existing_layer() {
+    // layers = ["**"], toggle "_" → ["**", "_"]
+    let result = toggle_marker_in_layers(&["**"], "_");
+    assert_eq!(result, vec!["**", "_"]);
+}
+
+#[test]
+fn wrap_two_layers() {
+    assert_eq!(wrap_with_layers("hello", &["**", "_"]), "**_hello_**");
+}
+
+#[test]
+fn wrap_three_layers() {
+    assert_eq!(wrap_with_layers("hello", &["**", "~~", "_"]), "**~~_hello_~~**");
+}
+
+// ── full round-trip scenarios ────────────────────────────────────────────
+
+#[test]
+fn roundtrip_add_bold_then_italic() {
+    // Start: "hello"
+    let text = wrap_with_layers("hello", &toggle_marker_in_layers(&[], "**"));
+    assert_eq!(text, "**hello**");
+
+    // Add italic
+    let (layers, _, _) = find_surrounding_markers("**", "**");
+    let new_layers = toggle_marker_in_layers(&layers, "_");
+    let text2 = wrap_with_layers("hello", &new_layers);
+    assert_eq!(text2, "**_hello_**");
+}
+
+#[test]
+fn roundtrip_remove_italic_from_bold_italic() {
+    // "**_hello_**" — remove italic
+    let (layers, _, _) = find_surrounding_markers("**_", "_**");
+    let new_layers = toggle_marker_in_layers(&layers, "_");
+    let text = wrap_with_layers("hello", &new_layers);
+    assert_eq!(text, "**hello**");
+}
+
+#[test]
+fn roundtrip_remove_bold_from_bold_italic() {
+    // "**_hello_**" — remove bold
+    let (layers, _, _) = find_surrounding_markers("**_", "_**");
+    let new_layers = toggle_marker_in_layers(&layers, "**");
+    let text = wrap_with_layers("hello", &new_layers);
+    assert_eq!(text, "_hello_");
+}
