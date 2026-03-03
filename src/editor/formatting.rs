@@ -42,3 +42,66 @@ pub fn set_block_format(line: &str, desired: &str) -> String {
         format!("{}{}", desired, content)
     }
 }
+
+// ---------------------------------------------------------------------------
+// Inline-format helpers
+// ---------------------------------------------------------------------------
+
+/// Known symmetric inline markers, longest first to avoid partial matches.
+const KNOWN_MARKERS: &[&str] = &["**", "~~", "`", "_"];
+
+/// Scan for matching marker layers surrounding a selection.
+///
+/// `before` — text immediately before the selection (a few characters suffice).
+/// `after`  — text immediately after the selection.
+///
+/// Returns `(layers, consumed_before, consumed_after)` where `layers` lists
+/// matched marker pairs from outermost to innermost, and the consumed counts
+/// indicate how many characters on each side belong to the markers.
+pub fn find_surrounding_markers(before: &str, after: &str) -> (Vec<&'static str>, usize, usize) {
+    let mut layers = Vec::new();
+    let mut consumed_before: usize = 0;
+    let mut consumed_after: usize = 0;
+    let mut b = before;
+    let mut a = after;
+
+    'outer: loop {
+        for marker in KNOWN_MARKERS {
+            if b.ends_with(marker) && a.starts_with(marker) {
+                layers.push(*marker);
+                b = &b[..b.len() - marker.len()];
+                a = &a[marker.len()..];
+                consumed_before += marker.len();
+                consumed_after += marker.len();
+                continue 'outer;
+            }
+        }
+        break;
+    }
+
+    (layers, consumed_before, consumed_after)
+}
+
+/// Toggle a marker in a layer list.
+///
+/// If present → remove it.  If absent → append it (innermost position).
+pub fn toggle_marker_in_layers<'a>(layers: &[&'a str], marker: &'a str) -> Vec<&'a str> {
+    if let Some(idx) = layers.iter().position(|m| *m == marker) {
+        let mut new = layers.to_vec();
+        new.remove(idx);
+        new
+    } else {
+        let mut new = layers.to_vec();
+        new.push(marker);
+        new
+    }
+}
+
+/// Wrap `content` with the given marker layers (outermost first).
+pub fn wrap_with_layers(content: &str, layers: &[&str]) -> String {
+    let mut result = content.to_string();
+    for marker in layers.iter().rev() {
+        result = format!("{}{}{}", marker, result, marker);
+    }
+    result
+}
