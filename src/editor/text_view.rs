@@ -17,17 +17,24 @@ use crate::ui::appearance::ColorScheme;
 // MditTextView — NSTextView subclass that draws H1/H2 separator lines
 // ---------------------------------------------------------------------------
 
+/// Groups transient code-block overlay state: hit-test rects for copy buttons
+/// and the post-copy feedback (green checkmark) timer info.
+struct CodeBlockOverlayState {
+    /// Copy-button rects computed each draw cycle: (icon_rect, code_text).
+    /// Populated in draw_code_blocks(), read in mouseDown:.
+    button_rects: Vec<(NSRect, String)>,
+    /// When Some, the copy-feedback state: (block_index, time_of_copy).
+    /// Drives the green-checkmark overlay for 1.5s after a copy action.
+    feedback: Option<(usize, std::time::Instant)>,
+}
+
 #[doc(hidden)]
 pub struct MditTextViewIvars {
     /// Retained reference to the editor delegate so `drawRect:` can read
     /// the current heading separator positions without extra wiring.
     delegate: RefCell<Option<Retained<MditEditorDelegate>>>,
-    /// Copy-button rects computed each draw cycle: (icon_rect, code_text).
-    /// Populated in draw_code_blocks(), read in mouseDown:.
-    copy_button_rects: RefCell<Vec<(NSRect, String)>>,
-    /// When Some, the copy-feedback state: (block_index, time_of_copy).
-    /// Drives the green-checkmark overlay for 1.5s after a copy action.
-    copy_feedback: RefCell<Option<(usize, std::time::Instant)>>,
+    /// Code-block copy-button overlay state (rects + feedback timer).
+    overlay: RefCell<CodeBlockOverlayState>,
 }
 
 define_class!(
@@ -66,7 +73,7 @@ define_class!(
         /// to revert the green checkmark back to the normal copy icon.
         #[unsafe(method(clearCopyFeedback))]
         fn clear_copy_feedback(&self) {
-            *self.ivars().copy_feedback.borrow_mut() = None;
+            self.ivars().overlay.borrow_mut().feedback = None;
             let _: () = unsafe { msg_send![self, setNeedsDisplay: true] };
         }
 
@@ -78,8 +85,8 @@ define_class!(
 
             // Find which copy-button (if any) was clicked.
             let click_result = {
-                let rects = self.ivars().copy_button_rects.borrow();
-                rects.iter().enumerate().find_map(|(idx, (rect, code_text))| {
+                let overlay = self.ivars().overlay.borrow();
+                overlay.button_rects.iter().enumerate().find_map(|(idx, (rect, code_text))| {
                     let in_rect = view_point.x >= rect.origin.x
                         && view_point.x <= rect.origin.x + rect.size.width
                         && view_point.y >= rect.origin.y
@@ -97,7 +104,7 @@ define_class!(
                     pb.setString_forType(&ns_str, NSPasteboardTypeString);
                 }
                 // Activate feedback: green checkmark for 1.5s.
-                *self.ivars().copy_feedback.borrow_mut() =
+                self.ivars().overlay.borrow_mut().feedback =
                     Some((block_idx, std::time::Instant::now()));
                 unsafe {
                     let _: () = msg_send![
@@ -121,8 +128,10 @@ impl MditTextView {
     fn new(mtm: MainThreadMarker, frame: NSRect) -> Retained<Self> {
         let this = Self::alloc(mtm).set_ivars(MditTextViewIvars {
             delegate: RefCell::new(None),
-            copy_button_rects: RefCell::new(Vec::new()),
-            copy_feedback: RefCell::new(None),
+            overlay: RefCell::new(CodeBlockOverlayState {
+                button_rects: Vec::new(),
+                feedback: None,
+            }),
         });
         unsafe { msg_send![super(this), initWithFrame: frame] }
     }
@@ -316,109 +325,103 @@ impl MditTextView {
 
     /// Draw border strokes and copy icons for all code blocks.
     /// Called from drawRect: AFTER glyphs — correct for overlay rendering.
-    /// Also populates copy_button_rects for mouseDown: hit-testing.
+    /// Also populates overlay.button_rects for mouseDown: hit-testing.
     fn draw_code_blocks(&self) {
-        // Clear previous frame's hit rects.
-        self.ivars().copy_button_rects.borrow_mut().clear();
+        self.ivars().overlay.borrow_mut().button_rects.clear();
 
         let rects = self.code_block_rects();
-
         for (index, (block_rect, icon_rect, code_text, language)) in rects.into_iter().enumerate() {
-            // ── Draw border ───────────────────────────────────────────────────
-            let border_path =
-                NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(block_rect, 6.0, 6.0);
-            border_path.setLineWidth(1.0);
-            NSColor::separatorColor().setStroke();
-            border_path.stroke();
+            self.draw_code_block_border(block_rect);
+            self.draw_code_block_language_tag(block_rect, &language);
+            self.draw_code_block_copy_icon(index, icon_rect);
+            self.ivars().overlay.borrow_mut().button_rects.push((icon_rect, code_text));
+        }
+    }
 
-            // ── Draw language tag in fieldset style (gap in top border) ──────────────
-            if !language.is_empty() {
-                let ns_lang = NSString::from_str(&language);
+    /// Stroke a rounded-rect border for a single code block.
+    fn draw_code_block_border(&self, block_rect: NSRect) {
+        let border_path =
+            NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(block_rect, 6.0, 6.0);
+        border_path.setLineWidth(1.0);
+        NSColor::separatorColor().setStroke();
+        border_path.stroke();
+    }
 
-                // Build NSMutableAttributedString via msg_send! (avoids NSDictionary complexity).
-                let mattr: Retained<objc2::runtime::AnyObject> = unsafe {
-                    let cls = objc2::runtime::AnyClass::get(c"NSMutableAttributedString")
-                        .expect("NSMutableAttributedString class not found");
-                    let obj: *mut objc2::runtime::AnyObject = msg_send![cls, alloc];
-                    let obj: *mut objc2::runtime::AnyObject =
-                        msg_send![obj, initWithString: &*ns_lang];
-                    Retained::retain(obj).expect("initWithString returned nil")
-                };
+    /// Draw a fieldset-style language label in the gap of the top border.
+    fn draw_code_block_language_tag(&self, block_rect: NSRect, language: &str) {
+        if language.is_empty() {
+            return;
+        }
+        let ns_lang = NSString::from_str(language);
 
-                let tag_len = language.encode_utf16().count();
-                let tag_range = objc2_foundation::NSRange {
-                    location: 0,
-                    length: tag_len,
-                };
-                let tag_font =
-                    unsafe { NSFont::monospacedSystemFontOfSize_weight(10.0, NSFontWeightRegular) };
-                let tag_color = NSColor::secondaryLabelColor();
-                unsafe {
-                    let font_obj: &objc2::runtime::AnyObject = &**tag_font;
-                    let color_obj: &objc2::runtime::AnyObject = &**tag_color;
-                    let _: () = msg_send![&*mattr,
-                        addAttribute: NSFontAttributeName,
-                        value: font_obj,
-                        range: tag_range];
-                    let _: () = msg_send![&*mattr,
-                        addAttribute: NSForegroundColorAttributeName,
-                        value: color_obj,
-                        range: tag_range];
-                }
+        let mattr: Retained<objc2::runtime::AnyObject> = unsafe {
+            let cls = objc2::runtime::AnyClass::get(c"NSMutableAttributedString")
+                .expect("NSMutableAttributedString class not found");
+            let obj: *mut objc2::runtime::AnyObject = msg_send![cls, alloc];
+            let obj: *mut objc2::runtime::AnyObject =
+                msg_send![obj, initWithString: &*ns_lang];
+            Retained::retain(obj).expect("initWithString returned nil")
+        };
 
-                // Measure the rendered text size.
-                let tag_size: NSSize = unsafe { msg_send![&*mattr, size] };
+        let tag_len = language.encode_utf16().count();
+        let tag_range = objc2_foundation::NSRange {
+            location: 0,
+            length: tag_len,
+        };
+        let tag_font =
+            unsafe { NSFont::monospacedSystemFontOfSize_weight(10.0, NSFontWeightRegular) };
+        let tag_color = NSColor::secondaryLabelColor();
+        unsafe {
+            let font_obj: &objc2::runtime::AnyObject = &tag_font;
+            let color_obj: &objc2::runtime::AnyObject = &tag_color;
+            let _: () = msg_send![&*mattr,
+                addAttribute: NSFontAttributeName,
+                value: font_obj,
+                range: tag_range];
+            let _: () = msg_send![&*mattr,
+                addAttribute: NSForegroundColorAttributeName,
+                value: color_obj,
+                range: tag_range];
+        }
 
-                // Gap: starts 14pt from left edge, 4pt padding each side of text.
-                let gap_x = block_rect.origin.x + 14.0;
-                let gap_w = tag_size.width + 8.0;
-                let gap_y = block_rect.origin.y - tag_size.height / 2.0 - 1.0;
-                let gap_h = tag_size.height + 2.0;
+        let tag_size: NSSize = unsafe { msg_send![&*mattr, size] };
 
-                // Erase the border line in the gap with the view's background color.
-                let bg = self.backgroundColor();
-                bg.setFill();
-                NSRectFill(NSRect::new(
-                    NSPoint::new(gap_x, gap_y),
-                    NSSize::new(gap_w, gap_h),
-                ));
+        let gap_x = block_rect.origin.x + 14.0;
+        let gap_w = tag_size.width + 8.0;
+        let gap_y = block_rect.origin.y - tag_size.height / 2.0 - 1.0;
+        let gap_h = tag_size.height + 2.0;
 
-                // Draw the attributed string inside the gap.
-                let text_rect = NSRect::new(
-                    NSPoint::new(gap_x + 4.0, gap_y + 1.0),
-                    NSSize::new(tag_size.width, tag_size.height),
-                );
-                let _: () = unsafe { msg_send![&*mattr, drawInRect: text_rect] };
-            }
+        let bg = self.backgroundColor();
+        bg.setFill();
+        NSRectFill(NSRect::new(
+            NSPoint::new(gap_x, gap_y),
+            NSSize::new(gap_w, gap_h),
+        ));
 
-            // ── Draw SF Symbol copy icon (14×14pt) ────────────────────────────
-            // Show green checkmark for 1.5s after a copy, then revert to copy icon.
-            let show_checkmark = {
-                let fb = self.ivars().copy_feedback.borrow();
-                matches!(&*fb, Some((i, t)) if *i == index && t.elapsed().as_secs_f64() < 1.5)
-            };
-            let icon_name = if show_checkmark {
-                "checkmark"
+        let text_rect = NSRect::new(
+            NSPoint::new(gap_x + 4.0, gap_y + 1.0),
+            NSSize::new(tag_size.width, tag_size.height),
+        );
+        let _: () = unsafe { msg_send![&*mattr, drawInRect: text_rect] };
+    }
+
+    /// Draw the SF Symbol copy/checkmark icon for a single code block.
+    fn draw_code_block_copy_icon(&self, block_index: usize, icon_rect: NSRect) {
+        let show_checkmark = {
+            let overlay = self.ivars().overlay.borrow();
+            matches!(&overlay.feedback, Some((i, t)) if *i == block_index && t.elapsed().as_secs_f64() < 1.5)
+        };
+        let icon_name = if show_checkmark { "checkmark" } else { "doc.on.doc" };
+        let name = NSString::from_str(icon_name);
+        if let Some(icon) =
+            NSImage::imageWithSystemSymbolName_accessibilityDescription(&name, None)
+        {
+            if show_checkmark {
+                NSColor::systemGreenColor().set();
             } else {
-                "doc.on.doc"
-            };
-            let name = NSString::from_str(icon_name);
-            if let Some(icon) =
-                NSImage::imageWithSystemSymbolName_accessibilityDescription(&name, None)
-            {
-                if show_checkmark {
-                    NSColor::systemGreenColor().set();
-                } else {
-                    NSColor::secondaryLabelColor().set();
-                }
-                icon.drawInRect(icon_rect);
+                NSColor::secondaryLabelColor().set();
             }
-
-            // Store rect for hit-testing in mouseDown:.
-            self.ivars()
-                .copy_button_rects
-                .borrow_mut()
-                .push((icon_rect, code_text));
+            icon.drawInRect(icon_rect);
         }
     }
 }
