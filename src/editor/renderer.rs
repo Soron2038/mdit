@@ -1,4 +1,4 @@
-use crate::markdown::attributes::AttributeSet;
+use crate::markdown::attributes::{AttributeSet, TextAttribute};
 use crate::markdown::parser::{MarkdownSpan, NodeKind};
 
 // ---------------------------------------------------------------------------
@@ -26,7 +26,7 @@ pub fn compute_attribute_runs(
 ) -> Vec<AttributeRun> {
     let mut runs = Vec::new();
     for span in spans {
-        collect_runs(text, span, cursor_pos, &mut runs);
+        collect_runs(text, span, cursor_pos, &[], &mut runs);
     }
     fill_gaps(text.len(), runs)
 }
@@ -56,6 +56,7 @@ fn collect_runs(
     text: &str,
     span: &MarkdownSpan,
     cursor_pos: Option<usize>,
+    inherited: &[TextAttribute],
     runs: &mut Vec<AttributeRun>,
 ) {
     let (start, end) = span.source_range;
@@ -72,22 +73,38 @@ fn collect_runs(
             // "**content**" — 2-char markers on each side
             let m = 2.min(end - start);
             runs.push(AttributeRun { range: (start, start + m), attrs: syn.clone() });
-            if start + m < end.saturating_sub(m) {
-                runs.push(AttributeRun {
-                    range: (start + m, end - m),
-                    attrs: AttributeSet::for_strong(),
-                });
+            let mut child_attrs = inherited.to_vec();
+            child_attrs.push(TextAttribute::Bold);
+            if span.children.is_empty() {
+                if start + m < end.saturating_sub(m) {
+                    runs.push(AttributeRun {
+                        range: (start + m, end - m),
+                        attrs: AttributeSet::new(child_attrs),
+                    });
+                }
+            } else {
+                for child in &span.children {
+                    collect_runs(text, child, cursor_pos, &child_attrs, runs);
+                }
             }
             runs.push(AttributeRun { range: (end - m, end), attrs: syn });
         }
         NodeKind::Emph => {
             // "*content*" — 1-char markers
             runs.push(AttributeRun { range: (start, start + 1), attrs: syn.clone() });
-            if start + 1 < end.saturating_sub(1) {
-                runs.push(AttributeRun {
-                    range: (start + 1, end - 1),
-                    attrs: AttributeSet::for_emph(),
-                });
+            let mut child_attrs = inherited.to_vec();
+            child_attrs.push(TextAttribute::Italic);
+            if span.children.is_empty() {
+                if start + 1 < end.saturating_sub(1) {
+                    runs.push(AttributeRun {
+                        range: (start + 1, end - 1),
+                        attrs: AttributeSet::new(child_attrs),
+                    });
+                }
+            } else {
+                for child in &span.children {
+                    collect_runs(text, child, cursor_pos, &child_attrs, runs);
+                }
             }
             runs.push(AttributeRun { range: (end - 1, end), attrs: syn });
         }
@@ -147,11 +164,20 @@ fn collect_runs(
         NodeKind::Strikethrough => {
             let m = 2.min(end - start);
             runs.push(AttributeRun { range: (start, start + m), attrs: syn.clone() });
-            if start + m < end.saturating_sub(m) {
-                runs.push(AttributeRun {
-                    range: (start + m, end - m),
-                    attrs: AttributeSet::for_strikethrough(),
-                });
+            let mut child_attrs = inherited.to_vec();
+            child_attrs.push(TextAttribute::Strikethrough);
+            child_attrs.push(TextAttribute::ForegroundColor("strikethrough"));
+            if span.children.is_empty() {
+                if start + m < end.saturating_sub(m) {
+                    runs.push(AttributeRun {
+                        range: (start + m, end - m),
+                        attrs: AttributeSet::new(child_attrs),
+                    });
+                }
+            } else {
+                for child in &span.children {
+                    collect_runs(text, child, cursor_pos, &child_attrs, runs);
+                }
             }
             runs.push(AttributeRun { range: (end - m, end), attrs: syn });
         }
@@ -214,7 +240,7 @@ fn collect_runs(
         NodeKind::List => {
             // Container only — visual structure comes from Item rendering.
             for child in &span.children {
-                collect_runs(text, child, cursor_pos, runs);
+                collect_runs(text, child, cursor_pos, inherited, runs);
             }
         }
         NodeKind::Item => {
@@ -234,7 +260,7 @@ fn collect_runs(
                 });
             }
             for child in &span.children {
-                collect_runs(text, child, cursor_pos, runs);
+                collect_runs(text, child, cursor_pos, inherited, runs);
             }
         }
         NodeKind::Table => {
@@ -252,9 +278,19 @@ fn collect_runs(
             });
         }
         // For remaining container nodes (Paragraph, Text, …) just recurse.
+        // Leaf nodes with inherited attributes emit a run for their range.
         _ => {
-            for child in &span.children {
-                collect_runs(text, child, cursor_pos, runs);
+            if span.children.is_empty() {
+                if !inherited.is_empty() {
+                    runs.push(AttributeRun {
+                        range: (start, end),
+                        attrs: AttributeSet::new(inherited.to_vec()),
+                    });
+                }
+            } else {
+                for child in &span.children {
+                    collect_runs(text, child, cursor_pos, inherited, runs);
+                }
             }
         }
     }

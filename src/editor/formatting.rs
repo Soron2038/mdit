@@ -97,6 +97,31 @@ pub fn toggle_marker_in_layers<'a>(layers: &[&'a str], marker: &'a str) -> Vec<&
     }
 }
 
+/// Peel matching marker pairs from both ends of a string.
+///
+/// Works like [`find_surrounding_markers`] but operates *inside* the string
+/// rather than on surrounding context.  Returns `(layers, inner_content)`.
+pub fn peel_inline_markers(text: &str) -> (Vec<&'static str>, &str) {
+    let mut layers = Vec::new();
+    let mut remaining = text;
+
+    'outer: loop {
+        for marker in KNOWN_MARKERS {
+            if remaining.len() >= marker.len() * 2
+                && remaining.starts_with(marker)
+                && remaining.ends_with(marker)
+            {
+                layers.push(*marker);
+                remaining = &remaining[marker.len()..remaining.len() - marker.len()];
+                continue 'outer;
+            }
+        }
+        break;
+    }
+
+    (layers, remaining)
+}
+
 /// Wrap `content` with the given marker layers (outermost first).
 pub fn wrap_with_layers(content: &str, layers: &[&str]) -> String {
     let mut result = content.to_string();

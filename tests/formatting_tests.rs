@@ -1,4 +1,4 @@
-use mdit::editor::formatting::{detect_block_prefix, find_surrounding_markers, set_block_format, toggle_marker_in_layers, wrap_with_layers};
+use mdit::editor::formatting::{detect_block_prefix, find_surrounding_markers, peel_inline_markers, set_block_format, toggle_marker_in_layers, wrap_with_layers};
 
 // ── detect_block_prefix ──────────────────────────────────────────────────
 
@@ -161,6 +161,50 @@ fn wrap_no_layers() {
 #[test]
 fn wrap_one_layer() {
     assert_eq!(wrap_with_layers("hello", &["**"]), "**hello**");
+}
+
+// ── peel_inline_markers ────────────────────────────────────────────────
+
+#[test]
+fn peel_no_markers() {
+    let (layers, inner) = peel_inline_markers("hello");
+    assert!(layers.is_empty());
+    assert_eq!(inner, "hello");
+}
+
+#[test]
+fn peel_bold() {
+    let (layers, inner) = peel_inline_markers("**hello**");
+    assert_eq!(layers, vec!["**"]);
+    assert_eq!(inner, "hello");
+}
+
+#[test]
+fn peel_italic() {
+    let (layers, inner) = peel_inline_markers("_hello_");
+    assert_eq!(layers, vec!["_"]);
+    assert_eq!(inner, "hello");
+}
+
+#[test]
+fn peel_nested_bold_italic() {
+    let (layers, inner) = peel_inline_markers("**_hello_**");
+    assert_eq!(layers, vec!["**", "_"]);
+    assert_eq!(inner, "hello");
+}
+
+#[test]
+fn peel_nested_italic_bold() {
+    let (layers, inner) = peel_inline_markers("_**hello**_");
+    assert_eq!(layers, vec!["_", "**"]);
+    assert_eq!(inner, "hello");
+}
+
+#[test]
+fn peel_only_opening_no_match() {
+    let (layers, inner) = peel_inline_markers("**hello");
+    assert!(layers.is_empty());
+    assert_eq!(inner, "**hello");
 }
 
 // ── nested marker scenarios ──────────────────────────────────────────────

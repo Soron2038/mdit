@@ -767,7 +767,7 @@ fn toggle_inline_wrap(tv: &NSTextView, marker: &str) {
     let after = full_str.substringWithRange(after_range).to_string();
 
     use mdit::editor::formatting::{
-        find_surrounding_markers, toggle_marker_in_layers, wrap_with_layers,
+        find_surrounding_markers, peel_inline_markers, toggle_marker_in_layers, wrap_with_layers,
     };
 
     let (layers, consumed_before, consumed_after) =
@@ -784,10 +784,19 @@ fn toggle_inline_wrap(tv: &NSTextView, marker: &str) {
         let ns = NSString::from_str(&new_text);
         unsafe { msg_send![tv, insertText: &*ns, replacementRange: replace_range] }
     } else {
-        // Marker absent -> wrap the selection.
-        let new_text = format!("{}{}{}", marker, selected, marker);
-        let ns = NSString::from_str(&new_text);
-        unsafe { msg_send![tv, insertText: &*ns, replacementRange: range] }
+        // Fallback: check if markers are INSIDE the selection (hidden-marker case).
+        let (inner_layers, inner_content) = peel_inline_markers(&selected);
+        if inner_layers.iter().any(|m| *m == marker) {
+            let new_layers = toggle_marker_in_layers(&inner_layers, marker);
+            let new_text = wrap_with_layers(inner_content, &new_layers);
+            let ns = NSString::from_str(&new_text);
+            unsafe { msg_send![tv, insertText: &*ns, replacementRange: range] }
+        } else {
+            // Marker truly absent -> wrap the selection.
+            let new_text = format!("{}{}{}", marker, selected, marker);
+            let ns = NSString::from_str(&new_text);
+            unsafe { msg_send![tv, insertText: &*ns, replacementRange: range] }
+        }
     }
 }
 
