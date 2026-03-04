@@ -4,7 +4,15 @@
       "Bash(wc:*)",
       "Bash(cargo test:*)",
       "Bash(ls:*)",
-      "Bash(open:*)"
+      "Bash(open:*)",
+      "Bash(git -C /Users/witt/Developer/mdit status:*)",
+      "Bash(cargo clippy:*)",
+      "Bash(git checkout:*)",
+      "Bash(git -C /Users/witt/Developer/mdit diff src/editor/renderer.rs src/editor/text_view.rs --stat)",
+      "Bash(git -C /Users/witt/Developer/mdit diff --stat -- src/editor/renderer.rs src/editor/text_view.rs)",
+      "Bash(git -C /Users/witt/Developer/mdit add src/editor/renderer.rs src/editor/text_view.rs)",
+      "Bash(git -C:*)",
+      "Bash(gh pr create:*)"
     ]
   }
 }
