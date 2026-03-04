@@ -28,9 +28,16 @@ pub struct MditEditorDelegateIvars {
     /// UTF-16 character offsets of H1/H2 heading paragraph starts, updated
     /// after every re-parse. Read by MditTextView to draw separator lines.
     heading_sep_positions: RefCell<Vec<usize>>,
+    /// UTF-16 character offsets of thematic breaks (horizontal rules), updated
+    /// after every re-parse. Read by MditTextView to draw horizontal lines.
+    thematic_break_positions: RefCell<Vec<usize>>,
     /// Code block metadata updated after every re-parse.
     /// Read by MditTextView to draw the visual overlay and copy-to-clipboard.
     code_block_infos: RefCell<Vec<CodeBlockInfo>>,
+    /// UTF-16 offsets of table row boundaries for horizontal grid lines.
+    table_h_sep_positions: RefCell<Vec<usize>>,
+    /// UTF-16 offsets of table pipe characters for vertical grid lines.
+    table_pipe_sep_positions: RefCell<Vec<usize>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -81,7 +88,10 @@ define_class!(
             self.ivars().applying.set(true);
             let positions = apply_attribute_runs(text_storage, &text, &runs, &scheme);
             self.ivars().applying.set(false);
-            *self.ivars().heading_sep_positions.borrow_mut() = positions;
+            *self.ivars().heading_sep_positions.borrow_mut() = positions.heading_seps;
+            *self.ivars().thematic_break_positions.borrow_mut() = positions.thematic_breaks;
+            *self.ivars().table_h_sep_positions.borrow_mut() = positions.table_h_seps;
+            *self.ivars().table_pipe_sep_positions.borrow_mut() = positions.table_pipe_seps;
             let infos = {
                 let spans_ref = self.ivars().spans.borrow();
                 collect_code_block_infos(&spans_ref, &text)
@@ -104,7 +114,10 @@ impl MditEditorDelegate {
             scheme: Cell::new(scheme),
             applying: Cell::new(false),
             heading_sep_positions: RefCell::new(Vec::new()),
+            thematic_break_positions: RefCell::new(Vec::new()),
             code_block_infos: RefCell::new(Vec::new()),
+            table_h_sep_positions: RefCell::new(Vec::new()),
+            table_pipe_sep_positions: RefCell::new(Vec::new()),
         });
         unsafe { msg_send![super(this), init] }
     }
@@ -153,7 +166,10 @@ impl MditEditorDelegate {
         self.ivars().applying.set(true);
         let positions = apply_attribute_runs(storage, &text, &runs, &scheme);
         self.ivars().applying.set(false);
-        *self.ivars().heading_sep_positions.borrow_mut() = positions;
+        *self.ivars().heading_sep_positions.borrow_mut() = positions.heading_seps;
+        *self.ivars().thematic_break_positions.borrow_mut() = positions.thematic_breaks;
+        *self.ivars().table_h_sep_positions.borrow_mut() = positions.table_h_seps;
+        *self.ivars().table_pipe_sep_positions.borrow_mut() = positions.table_pipe_seps;
         let infos = {
             let spans_ref = self.ivars().spans.borrow();
             collect_code_block_infos(&spans_ref, &text)
@@ -167,9 +183,27 @@ impl MditEditorDelegate {
         self.ivars().heading_sep_positions.borrow().clone()
     }
 
+    /// Returns the UTF-16 character offsets of thematic breaks (horizontal rules).
+    /// Used by `MditTextView` to draw horizontal lines.
+    pub fn thematic_break_positions(&self) -> Vec<usize> {
+        self.ivars().thematic_break_positions.borrow().clone()
+    }
+
     /// Returns the code block metadata for all fenced code blocks in the document.
     /// Used by `MditTextView` to draw the visual overlay.
     pub fn code_block_infos(&self) -> Vec<CodeBlockInfo> {
         self.ivars().code_block_infos.borrow().clone()
+    }
+
+    /// Returns the UTF-16 character offsets of table row boundaries.
+    /// Used by `MditTextView` to draw horizontal separator lines.
+    pub fn table_h_sep_positions(&self) -> Vec<usize> {
+        self.ivars().table_h_sep_positions.borrow().clone()
+    }
+
+    /// Returns the UTF-16 character offsets of table pipe characters.
+    /// Used by `MditTextView` to draw vertical separator lines.
+    pub fn table_pipe_sep_positions(&self) -> Vec<usize> {
+        self.ivars().table_pipe_sep_positions.borrow().clone()
     }
 }

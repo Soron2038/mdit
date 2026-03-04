@@ -67,6 +67,10 @@ pub struct LayoutPositions {
     pub heading_seps: Vec<usize>,
     /// UTF-16 offsets of thematic breaks (horizontal rules).
     pub thematic_breaks: Vec<usize>,
+    /// UTF-16 offsets of table row boundaries (horizontal separator lines).
+    pub table_h_seps: Vec<usize>,
+    /// UTF-16 offsets of table pipe characters (vertical separator lines).
+    pub table_pipe_seps: Vec<usize>,
 }
 
 // ---------------------------------------------------------------------------
@@ -89,7 +93,12 @@ pub fn apply_attribute_runs(
 ) -> LayoutPositions {
     let text_len_u16 = text.encode_utf16().count();
     if text_len_u16 == 0 {
-        return LayoutPositions { heading_seps: Vec::new(), thematic_breaks: Vec::new() };
+        return LayoutPositions {
+            heading_seps: Vec::new(),
+            thematic_breaks: Vec::new(),
+            table_h_seps: Vec::new(),
+            table_pipe_seps: Vec::new(),
+        };
     }
 
     let full_range = NSRange { location: 0, length: text_len_u16 };
@@ -124,6 +133,8 @@ pub fn apply_attribute_runs(
     // ── Per-run overrides ─────────────────────────────────────────────────
     let mut heading_sep_positions: Vec<usize> = Vec::new();
     let mut thematic_break_positions: Vec<usize> = Vec::new();
+    let mut table_h_sep_positions: Vec<usize> = Vec::new();
+    let mut table_pipe_sep_positions: Vec<usize> = Vec::new();
 
     for run in runs {
         let start_u16 = byte_to_utf16(text, run.range.0);
@@ -157,11 +168,19 @@ pub fn apply_attribute_runs(
         if run.attrs.contains(&TextAttribute::ThematicBreak) {
             thematic_break_positions.push(start_u16);
         }
+        if run.attrs.contains(&TextAttribute::TableSeparatorLine) {
+            table_h_sep_positions.push(start_u16);
+        }
+        if run.attrs.contains(&TextAttribute::TablePipe) {
+            table_pipe_sep_positions.push(start_u16);
+        }
     }
 
     LayoutPositions {
         heading_seps: heading_sep_positions,
         thematic_breaks: thematic_break_positions,
+        table_h_seps: table_h_sep_positions,
+        table_pipe_seps: table_pipe_sep_positions,
     }
 }
 
