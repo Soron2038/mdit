@@ -67,6 +67,8 @@ define_class!(
             // Border strokes + copy icons drawn after glyphs (correct for overlays).
             self.draw_code_blocks();
             self.draw_heading_separators();
+            self.draw_thematic_breaks();
+            self.draw_table_h_separators();
         }
 
         /// Timer callback — clears the copy-feedback state and triggers a redraw
@@ -200,6 +202,122 @@ impl MditTextView {
             let y = frag_rect.origin.y + tc_origin.y - 10.0;
 
             // Draw as a filled 0.5pt rect (= 1 physical pixel on Retina).
+            let line_rect = NSRect::new(
+                NSPoint::new(x_start, y - 0.25),
+                NSSize::new(x_end - x_start, 0.5),
+            );
+            NSRectFill(line_rect);
+        }
+    }
+
+    fn draw_thematic_breaks(&self) {
+        let delegate_ref = self.ivars().delegate.borrow();
+        let delegate = match delegate_ref.as_ref() {
+            Some(d) => d,
+            None => return,
+        };
+        let positions = delegate.thematic_break_positions();
+        if positions.is_empty() {
+            return;
+        }
+
+        let layout_manager = match unsafe { self.layoutManager() } {
+            Some(lm) => lm,
+            None => return,
+        };
+        let text_container = match unsafe { self.textContainer() } {
+            Some(tc) => tc,
+            None => return,
+        };
+
+        let tc_origin = self.textContainerOrigin();
+        let container_size = text_container.containerSize();
+        let x_start = tc_origin.x;
+        let x_end = x_start + container_size.width;
+
+        let sep_color = NSColor::separatorColor();
+        sep_color.setFill();
+
+        for &utf16_pos in &positions {
+            let glyph_idx: usize =
+                unsafe { msg_send![&*layout_manager, glyphIndexForCharacterAtIndex: utf16_pos] };
+            if glyph_idx == usize::MAX {
+                continue;
+            }
+
+            let null_ptr = std::ptr::null_mut::<objc2_foundation::NSRange>();
+            let frag_rect: NSRect = unsafe {
+                msg_send![
+                    &*layout_manager,
+                    lineFragmentRectForGlyphAtIndex: glyph_idx,
+                    effectiveRange: null_ptr
+                ]
+            };
+            if frag_rect.size.height == 0.0 {
+                continue;
+            }
+
+            // Centre the line vertically in the line fragment.
+            let y = frag_rect.origin.y + tc_origin.y + frag_rect.size.height / 2.0;
+
+            let line_rect = NSRect::new(
+                NSPoint::new(x_start, y - 0.25),
+                NSSize::new(x_end - x_start, 0.5),
+            );
+            NSRectFill(line_rect);
+        }
+    }
+
+    /// Draw horizontal separator lines between table rows.
+    fn draw_table_h_separators(&self) {
+        let delegate_ref = self.ivars().delegate.borrow();
+        let delegate = match delegate_ref.as_ref() {
+            Some(d) => d,
+            None => return,
+        };
+        let positions = delegate.table_h_sep_positions();
+        if positions.is_empty() {
+            return;
+        }
+
+        let layout_manager = match unsafe { self.layoutManager() } {
+            Some(lm) => lm,
+            None => return,
+        };
+        let text_container = match unsafe { self.textContainer() } {
+            Some(tc) => tc,
+            None => return,
+        };
+
+        let tc_origin = self.textContainerOrigin();
+        let container_size = text_container.containerSize();
+        let x_start = tc_origin.x;
+        let x_end = x_start + container_size.width;
+
+        let sep_color = NSColor::separatorColor();
+        sep_color.setFill();
+
+        for &utf16_pos in &positions {
+            let glyph_idx: usize =
+                unsafe { msg_send![&*layout_manager, glyphIndexForCharacterAtIndex: utf16_pos] };
+            if glyph_idx == usize::MAX {
+                continue;
+            }
+
+            let null_ptr = std::ptr::null_mut::<objc2_foundation::NSRange>();
+            let frag_rect: NSRect = unsafe {
+                msg_send![
+                    &*layout_manager,
+                    lineFragmentRectForGlyphAtIndex: glyph_idx,
+                    effectiveRange: null_ptr
+                ]
+            };
+            if frag_rect.size.height == 0.0 {
+                continue;
+            }
+
+            // Draw at the top of the line fragment (= boundary between rows).
+            let y = frag_rect.origin.y + tc_origin.y;
             let line_rect = NSRect::new(
                 NSPoint::new(x_start, y - 0.25),
                 NSSize::new(x_end - x_start, 0.5),
