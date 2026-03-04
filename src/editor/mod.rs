@@ -7,3 +7,4 @@ pub mod image_handler;
 pub mod math_view;
 pub mod document_state;
 pub mod formatting;
+pub mod tab_manager;
