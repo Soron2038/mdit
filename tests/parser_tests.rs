@@ -79,3 +79,27 @@ fn bold_source_range_is_correct() {
     let extracted = &source[bold.source_range.0..bold.source_range.1];
     assert!(extracted.contains("world"), "source range should cover bold content, got: {:?}", extracted);
 }
+
+#[test]
+fn parses_table_row() {
+    let nodes = parse("| A | B |\n|---|---|\n| 1 | 2 |");
+    let all = flatten(&nodes);
+    assert!(
+        all.iter().any(|n| matches!(n.kind, NodeKind::TableRow { header: true })),
+        "expected a header TableRow node"
+    );
+    assert!(
+        all.iter().any(|n| matches!(n.kind, NodeKind::TableRow { header: false })),
+        "expected a body TableRow node"
+    );
+}
+
+#[test]
+fn parses_table_cell() {
+    let nodes = parse("| A | B |\n|---|---|\n| 1 | 2 |");
+    let all = flatten(&nodes);
+    assert!(
+        all.iter().any(|n| n.kind == NodeKind::TableCell),
+        "expected a TableCell node"
+    );
+}
