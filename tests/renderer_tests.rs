@@ -92,6 +92,15 @@ fn blockquote_gets_bar_attribute() {
 }
 
 #[test]
+fn table_no_longer_monospace() {
+    let text = "| A | B |\n|---|---|\n| 1 | 2 |";
+    let spans = parse(text);
+    let runs = compute_attribute_runs(text, &spans, None);
+    let has_monospace = runs.iter().any(|r| r.attrs.contains(&TextAttribute::Monospace));
+    assert!(!has_monospace, "tables should not use Monospace styling");
+}
+
+#[test]
 fn h1_prefix_hidden_outside_cursor() {
     let text = "# Heading";
     let spans = parse(text);
