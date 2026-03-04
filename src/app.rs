@@ -734,84 +734,52 @@ fn show_save_alert(filename: &str, mtm: MainThreadMarker) -> SaveChoice {
 
 /// Toggle an inline marker around the current selection.
 ///
-/// If the selection is already surrounded by `marker` (possibly among other
-/// nested markers), that marker layer is removed.  Otherwise the marker is
-/// added as the innermost layer.
+/// Delegates to the pure `compute_inline_toggle()` for the string logic,
+/// then applies the result to the NSTextView.
 fn toggle_inline_wrap(tv: &NSTextView, marker: &str) {
     let range: NSRange = unsafe { msg_send![tv, selectedRange] };
     let Some(storage) = (unsafe { tv.textStorage() }) else {
         return;
     };
     let full_str = storage.string();
-    let full_len = full_str.length(); // UTF-16 length
+    let full_len = full_str.length();
 
     let selected = full_str.substringWithRange(range).to_string();
 
     // Grab a few characters on each side for marker detection.
-    // Max combined marker width (all 4 stacked): ** ~~ ` _ = 6 UTF-16 units.
     const MAX_MARKERS: usize = 6;
-
     let before_start = range.location.saturating_sub(MAX_MARKERS);
     let after_end = (range.location + range.length + MAX_MARKERS).min(full_len);
 
-    let before_range = NSRange {
-        location: before_start,
-        length: range.location - before_start,
+    let before = full_str
+        .substringWithRange(NSRange { location: before_start, length: range.location - before_start })
+        .to_string();
+    let after = full_str
+        .substringWithRange(NSRange {
+            location: range.location + range.length,
+            length: after_end - (range.location + range.length),
+        })
+        .to_string();
+
+    let result = mdit::editor::formatting::compute_inline_toggle(&selected, &before, &after, marker);
+
+    let replace_range = NSRange {
+        location: range.location - result.consumed_before,
+        length: result.consumed_before + range.length + result.consumed_after,
     };
-    let after_range = NSRange {
-        location: range.location + range.length,
-        length: after_end - (range.location + range.length),
-    };
-
-    let before = full_str.substringWithRange(before_range).to_string();
-    let after = full_str.substringWithRange(after_range).to_string();
-
-    use mdit::editor::formatting::{
-        find_surrounding_markers, peel_inline_markers, toggle_marker_in_layers, wrap_with_layers,
-    };
-
-    let (layers, consumed_before, consumed_after) =
-        find_surrounding_markers(&before, &after);
-
-    if layers.iter().any(|m| *m == marker) {
-        // Marker present -> remove it, keep other layers.
-        let new_layers = toggle_marker_in_layers(&layers, marker);
-        let new_text = wrap_with_layers(&selected, &new_layers);
-        let replace_range = NSRange {
-            location: range.location - consumed_before,
-            length: consumed_before + range.length + consumed_after,
-        };
-        let ns = NSString::from_str(&new_text);
-        unsafe { msg_send![tv, insertText: &*ns, replacementRange: replace_range] }
-    } else {
-        // Fallback: check if markers are INSIDE the selection (hidden-marker case).
-        let (inner_layers, inner_content) = peel_inline_markers(&selected);
-        if inner_layers.iter().any(|m| *m == marker) {
-            let new_layers = toggle_marker_in_layers(&inner_layers, marker);
-            let new_text = wrap_with_layers(inner_content, &new_layers);
-            let ns = NSString::from_str(&new_text);
-            unsafe { msg_send![tv, insertText: &*ns, replacementRange: range] }
-        } else {
-            // Marker truly absent -> wrap the selection.
-            let new_text = format!("{}{}{}", marker, selected, marker);
-            let ns = NSString::from_str(&new_text);
-            unsafe { msg_send![tv, insertText: &*ns, replacementRange: range] }
-        }
-    }
+    let ns = NSString::from_str(&result.replacement);
+    unsafe { msg_send![tv, insertText: &*ns, replacementRange: replace_range] }
 }
 
 /// Replace the current NSTextView selection with `prefix + selected + suffix`.
-///
-/// Uses `insertText:replacementRange:` so the edit is registered with undo.
-/// Used for asymmetric wraps like links (`[` / `]()`).
 fn insert_link_wrap(tv: &NSTextView, prefix: &str, suffix: &str) {
     let range: NSRange = unsafe { msg_send![tv, selectedRange] };
     let Some(storage) = (unsafe { tv.textStorage() }) else {
         return;
     };
-    let selected: Retained<NSString> = storage.string().substringWithRange(range);
-    let combined = format!("{}{}{}", prefix, selected, suffix);
-    let ns = NSString::from_str(&combined);
+    let selected = storage.string().substringWithRange(range).to_string();
+    let text = mdit::editor::formatting::compute_link_wrap(&selected, prefix, suffix);
+    let ns = NSString::from_str(&text);
     unsafe { msg_send![tv, insertText: &*ns, replacementRange: range] }
 }
 
@@ -835,19 +803,13 @@ fn apply_block_format(tv: &NSTextView, desired_prefix: &str) {
 }
 
 /// Wrap the current selection in a fenced code block.
-/// If nothing is selected, insert an empty fence and position the cursor inside.
 fn insert_code_block(tv: &NSTextView) {
     let range: NSRange = unsafe { msg_send![tv, selectedRange] };
     let Some(storage) = (unsafe { tv.textStorage() }) else {
         return;
     };
     let selected = storage.string().substringWithRange(range).to_string();
-    let fence = "```";
-    let text = if selected.is_empty() {
-        format!("{}\n\n{}", fence, fence)
-    } else {
-        format!("{}\n{}\n{}", fence, selected, fence)
-    };
+    let text = mdit::editor::formatting::compute_code_block_wrap(&selected);
     let ns = NSString::from_str(&text);
     unsafe { msg_send![tv, insertText: &*ns, replacementRange: range] }
 }

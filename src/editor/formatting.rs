@@ -130,3 +130,82 @@ pub fn wrap_with_layers(content: &str, layers: &[&str]) -> String {
     }
     result
 }
+
+// ---------------------------------------------------------------------------
+// Inline toggle (pure computation)
+// ---------------------------------------------------------------------------
+
+/// Result of computing an inline-marker toggle.
+///
+/// The caller is responsible for applying this to the text view:
+/// - Replace the range `[selection_start - consumed_before,
+///   selection_start - consumed_before + replace_length]` with `replacement`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InlineToggleResult {
+    /// The text that should replace the affected range.
+    pub replacement: String,
+    /// Number of characters consumed *before* the selection start
+    /// (the surrounding markers that were stripped).
+    pub consumed_before: usize,
+    /// Number of characters consumed *after* the selection end.
+    pub consumed_after: usize,
+}
+
+/// Compute the result of toggling `marker` around a selection.
+///
+/// `selected` — the currently selected text.
+/// `before`   — a few characters immediately before the selection.
+/// `after`    — a few characters immediately after the selection.
+/// `marker`   — the symmetric marker to toggle (`"**"`, `"_"`, `` "`" ``, `"~~"`).
+///
+/// Three cases:
+/// 1. Marker found in surrounding context → remove it (may keep other layers).
+/// 2. Marker found inside the selection (hidden-marker case) → remove it.
+/// 3. Marker absent → wrap the selection.
+pub fn compute_inline_toggle(
+    selected: &str,
+    before: &str,
+    after: &str,
+    marker: &str,
+) -> InlineToggleResult {
+    let (layers, consumed_before, consumed_after) =
+        find_surrounding_markers(before, after);
+
+    if layers.iter().any(|m| *m == marker) {
+        // Case 1: marker surrounds the selection — remove it, keep other layers.
+        let new_layers = toggle_marker_in_layers(&layers, marker);
+        let replacement = wrap_with_layers(selected, &new_layers);
+        InlineToggleResult { replacement, consumed_before, consumed_after }
+    } else {
+        // Check if markers are INSIDE the selection (hidden-marker case).
+        let (inner_layers, inner_content) = peel_inline_markers(selected);
+        if inner_layers.iter().any(|m| *m == marker) {
+            // Case 2: marker inside selection — remove it.
+            let new_layers = toggle_marker_in_layers(&inner_layers, marker);
+            let replacement = wrap_with_layers(inner_content, &new_layers);
+            InlineToggleResult { replacement, consumed_before: 0, consumed_after: 0 }
+        } else {
+            // Case 3: marker absent — wrap the selection.
+            let replacement = format!("{}{}{}", marker, selected, marker);
+            InlineToggleResult { replacement, consumed_before: 0, consumed_after: 0 }
+        }
+    }
+}
+
+/// Compute the text for a link wrap: `prefix + selected + suffix`.
+pub fn compute_link_wrap(selected: &str, prefix: &str, suffix: &str) -> String {
+    format!("{}{}{}", prefix, selected, suffix)
+}
+
+/// Compute the text for a fenced code block wrap.
+///
+/// If `selected` is empty, produces an empty fence with a blank line.
+/// Otherwise wraps the selection in triple-backtick fences.
+pub fn compute_code_block_wrap(selected: &str) -> String {
+    let fence = "```";
+    if selected.is_empty() {
+        format!("{}\n\n{}", fence, fence)
+    } else {
+        format!("{}\n{}\n{}", fence, selected, fence)
+    }
+}

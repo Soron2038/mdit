@@ -1,4 +1,8 @@
-use mdit::editor::formatting::{detect_block_prefix, find_surrounding_markers, peel_inline_markers, set_block_format, toggle_marker_in_layers, wrap_with_layers};
+use mdit::editor::formatting::{
+    compute_code_block_wrap, compute_inline_toggle, compute_link_wrap, detect_block_prefix,
+    find_surrounding_markers, peel_inline_markers, set_block_format, toggle_marker_in_layers,
+    wrap_with_layers, InlineToggleResult,
+};
 
 // ── detect_block_prefix ──────────────────────────────────────────────────
 
@@ -291,4 +295,117 @@ fn roundtrip_remove_bold_from_bold_italic() {
     let new_layers = toggle_marker_in_layers(&layers, "**");
     let text = wrap_with_layers("hello", &new_layers);
     assert_eq!(text, "_hello_");
+}
+
+// ── compute_inline_toggle ──────────────────────────────────────────────
+
+#[test]
+fn inline_toggle_add_bold_to_plain() {
+    let r = compute_inline_toggle("hello", "text ", " world", "**");
+    assert_eq!(r, InlineToggleResult {
+        replacement: "**hello**".into(),
+        consumed_before: 0,
+        consumed_after: 0,
+    });
+}
+
+#[test]
+fn inline_toggle_remove_bold_surrounding() {
+    // "**hello**" with cursor selecting "hello", before="**", after="**"
+    let r = compute_inline_toggle("hello", "**", "**", "**");
+    assert_eq!(r, InlineToggleResult {
+        replacement: "hello".into(),
+        consumed_before: 2,
+        consumed_after: 2,
+    });
+}
+
+#[test]
+fn inline_toggle_remove_bold_from_nested() {
+    // "**_hello_**" — remove bold, keep italic
+    let r = compute_inline_toggle("hello", "**_", "_**", "**");
+    assert_eq!(r, InlineToggleResult {
+        replacement: "_hello_".into(),
+        consumed_before: 3,
+        consumed_after: 3,
+    });
+}
+
+#[test]
+fn inline_toggle_remove_italic_from_nested() {
+    // "**_hello_**" — remove italic, keep bold
+    let r = compute_inline_toggle("hello", "**_", "_**", "_");
+    assert_eq!(r, InlineToggleResult {
+        replacement: "**hello**".into(),
+        consumed_before: 3,
+        consumed_after: 3,
+    });
+}
+
+#[test]
+fn inline_toggle_add_italic_to_bold() {
+    // "**hello**" — add italic inside existing bold.
+    // Bold markers are not consumed; italic wraps only the selection.
+    // Bridge replaces just the selection → "**_hello_**"
+    let r = compute_inline_toggle("hello", "**", "**", "_");
+    assert_eq!(r, InlineToggleResult {
+        replacement: "_hello_".into(),
+        consumed_before: 0,
+        consumed_after: 0,
+    });
+}
+
+#[test]
+fn inline_toggle_hidden_marker_case() {
+    // Selection includes markers: "**hello**" selected, no surrounding context
+    let r = compute_inline_toggle("**hello**", "text ", " world", "**");
+    assert_eq!(r, InlineToggleResult {
+        replacement: "hello".into(),
+        consumed_before: 0,
+        consumed_after: 0,
+    });
+}
+
+#[test]
+fn inline_toggle_empty_selection_adds_markers() {
+    let r = compute_inline_toggle("", "text ", " world", "**");
+    assert_eq!(r, InlineToggleResult {
+        replacement: "****".into(),
+        consumed_before: 0,
+        consumed_after: 0,
+    });
+}
+
+#[test]
+fn inline_toggle_add_code_to_plain() {
+    let r = compute_inline_toggle("hello", " ", " ", "`");
+    assert_eq!(r, InlineToggleResult {
+        replacement: "`hello`".into(),
+        consumed_before: 0,
+        consumed_after: 0,
+    });
+}
+
+// ── compute_link_wrap ──────────────────────────────────────────────────
+
+#[test]
+fn link_wrap_with_text() {
+    assert_eq!(compute_link_wrap("click here", "[", "]()"), "[click here]()");
+}
+
+#[test]
+fn link_wrap_empty_selection() {
+    assert_eq!(compute_link_wrap("", "[", "]()"), "[]()");
+}
+
+// ── compute_code_block_wrap ────────────────────────────────────────────
+
+#[test]
+fn code_block_wrap_empty() {
+    assert_eq!(compute_code_block_wrap(""), "```\n\n```");
+}
+
+#[test]
+fn code_block_wrap_with_content() {
+    assert_eq!(compute_code_block_wrap("let x = 1;"), "```\nlet x = 1;\n```");
 }
