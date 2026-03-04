@@ -326,3 +326,75 @@ fn table_cell_italic_gets_italic_attribute() {
     );
 }
 
+// ── Table pipe and separator marker tests (Task 4) ───────────────────────────
+
+#[test]
+fn table_pipes_hidden_when_cursor_outside() {
+    let text = "| A | B |\n|---|---|\n| 1 | 2 |";
+    let spans = parse(text);
+    let runs = compute_attribute_runs(text, &spans, Some(999));
+    let pipe_runs: Vec<_> = runs
+        .iter()
+        .filter(|r| r.attrs.contains(&TextAttribute::TablePipe))
+        .collect();
+    assert!(!pipe_runs.is_empty(), "expected TablePipe runs for pipe characters");
+    for pr in &pipe_runs {
+        assert!(pr.attrs.contains(&TextAttribute::Hidden), "pipes should be hidden");
+    }
+}
+
+#[test]
+fn table_pipes_visible_when_cursor_inside() {
+    let text = "| A | B |\n|---|---|\n| 1 | 2 |";
+    let spans = parse(text);
+    let runs = compute_attribute_runs(text, &spans, Some(3));
+    let has_table_pipe = runs.iter().any(|r| r.attrs.contains(&TextAttribute::TablePipe));
+    assert!(!has_table_pipe, "no TablePipe when cursor is inside table");
+    let has_hidden = runs.iter().any(|r| {
+        r.attrs.contains(&TextAttribute::Hidden) && r.range.1 - r.range.0 == 1
+    });
+    assert!(!has_hidden, "pipes should not be hidden when cursor is inside");
+}
+
+#[test]
+fn table_separator_row_hidden_when_cursor_outside() {
+    let text = "| A | B |\n|---|---|\n| 1 | 2 |";
+    let spans = parse(text);
+    let runs = compute_attribute_runs(text, &spans, Some(999));
+    let sep_run = runs
+        .iter()
+        .find(|r| r.attrs.contains(&TextAttribute::TableSeparatorLine));
+    assert!(sep_run.is_some(), "expected TableSeparatorLine for separator row");
+    assert!(
+        sep_run.unwrap().attrs.contains(&TextAttribute::Hidden),
+        "separator row should be hidden"
+    );
+}
+
+#[test]
+fn table_separator_row_visible_when_cursor_inside() {
+    let text = "| A | B |\n|---|---|\n| 1 | 2 |";
+    let spans = parse(text);
+    let runs = compute_attribute_runs(text, &spans, Some(3));
+    let has_sep = runs
+        .iter()
+        .any(|r| r.attrs.contains(&TextAttribute::TableSeparatorLine));
+    assert!(!has_sep, "no TableSeparatorLine when cursor is inside table");
+}
+
+#[test]
+fn table_multi_body_rows_get_h_separator() {
+    let text = "| A |\n|---|\n| 1 |\n| 2 |";
+    let spans = parse(text);
+    let runs = compute_attribute_runs(text, &spans, Some(999));
+    let sep_runs: Vec<_> = runs
+        .iter()
+        .filter(|r| r.attrs.contains(&TextAttribute::TableSeparatorLine))
+        .collect();
+    assert!(
+        sep_runs.len() >= 2,
+        "expected at least 2 TableSeparatorLine runs (sep row + body boundary); got {}",
+        sep_runs.len()
+    );
+}
+
