@@ -85,10 +85,7 @@ fn collect_runs(
             collect_strikethrough(text, span, cursor_pos, inherited, &syn, runs);
         }
         NodeKind::Link { .. } => {
-            runs.push(AttributeRun {
-                range: (start, end),
-                attrs: AttributeSet::for_link(),
-            });
+            collect_link(text, span, cursor_pos, inherited, &syn, runs);
         }
         NodeKind::CodeBlock { .. } => {
             collect_code_block(text, span, cursor_pos, runs);
@@ -99,6 +96,21 @@ fn collect_runs(
                 attrs: AttributeSet::for_blockquote(),
             });
         }
+        NodeKind::ThematicBreak => {
+            if cursor_in_span(cursor_pos, span.source_range) {
+                // Cursor on HR — show "---" in syntax color.
+                runs.push(AttributeRun {
+                    range: (start, end),
+                    attrs: AttributeSet::syntax_visible(),
+                });
+            } else {
+                // Cursor away — hide text, mark for line drawing.
+                runs.push(AttributeRun {
+                    range: (start, end),
+                    attrs: AttributeSet::syntax_hidden().with(TextAttribute::ThematicBreak),
+                });
+            }
+        }
         NodeKind::List => {
             for child in &span.children {
                 collect_runs(text, child, cursor_pos, inherited, runs);
@@ -108,10 +120,12 @@ fn collect_runs(
             collect_item(text, span, cursor_pos, inherited, runs);
         }
         NodeKind::Table => {
-            runs.push(AttributeRun {
-                range: (start, end),
-                attrs: AttributeSet::for_code_block(),
-            });
+            collect_table(text, span, cursor_pos, runs);
+        }
+        NodeKind::TableRow { .. } | NodeKind::TableCell => {
+            for child in &span.children {
+                collect_runs(text, child, cursor_pos, inherited, runs);
+            }
         }
         NodeKind::Footnote => {
             runs.push(AttributeRun {
@@ -289,6 +303,54 @@ fn collect_strikethrough(
     runs.push(AttributeRun { range: (end - m, end), attrs: syn.clone() });
 }
 
+/// "[title](url)" — asymmetric markers with link styling.
+fn collect_link(
+    text: &str,
+    span: &MarkdownSpan,
+    cursor_pos: Option<usize>,
+    inherited: &[TextAttribute],
+    syn: &AttributeSet,
+    runs: &mut Vec<AttributeRun>,
+) {
+    let (start, end) = (span.source_range.0, span.source_range.1.min(text.len()));
+
+    // Determine content boundaries from children (safe — comrak parsed it).
+    let (content_start, content_end) = if !span.children.is_empty() {
+        (
+            span.children.first().unwrap().source_range.0,
+            span.children.last().unwrap().source_range.1.min(end),
+        )
+    } else {
+        // No children — find "](" as fallback.
+        let bracket = text[start..end].find("](").map(|p| start + p).unwrap_or(end);
+        (start + 1, bracket)
+    };
+
+    // Opening marker: "["
+    runs.push(AttributeRun { range: (start, content_start), attrs: syn.clone() });
+
+    // Content: link title with link color.
+    let mut child_attrs = inherited.to_vec();
+    child_attrs.push(TextAttribute::ForegroundColor("link"));
+    if span.children.is_empty() {
+        if content_start < content_end {
+            runs.push(AttributeRun {
+                range: (content_start, content_end),
+                attrs: AttributeSet::new(child_attrs),
+            });
+        }
+    } else {
+        for child in &span.children {
+            collect_runs(text, child, cursor_pos, &child_attrs, runs);
+        }
+    }
+
+    // Closing marker: "](url)"
+    if content_end < end {
+        runs.push(AttributeRun { range: (content_end, end), attrs: syn.clone() });
+    }
+}
+
 /// Fenced code block: opening fence, code content, closing fence.
 fn collect_code_block(
     text: &str,
@@ -358,6 +420,100 @@ fn collect_item(
     }
     for child in &span.children {
         collect_runs(text, child, cursor_pos, inherited, runs);
+    }
+}
+
+/// Table: pipes as syntax markers, separator row hidden, cell content with inline formatting.
+fn collect_table(
+    text: &str,
+    span: &MarkdownSpan,
+    cursor_pos: Option<usize>,
+    runs: &mut Vec<AttributeRun>,
+) {
+    let cursor_in = cursor_in_span(cursor_pos, span.source_range);
+    let syn = syntax_attrs(cursor_pos, span.source_range);
+
+    // Partition children into header and body rows.
+    let mut header_end: Option<usize> = None;
+    let mut first_body_start: Option<usize> = None;
+
+    for row in &span.children {
+        match &row.kind {
+            NodeKind::TableRow { header: true } => {
+                header_end = Some(row.source_range.1);
+            }
+            NodeKind::TableRow { header: false } => {
+                if first_body_start.is_none() {
+                    first_body_start = Some(row.source_range.0);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // ── Mark separator row (gap between last header and first body row) ──
+    if let (Some(sep_start), Some(sep_end)) = (header_end, first_body_start) {
+        if sep_start < sep_end {
+            let mut attrs = syn.clone();
+            if !cursor_in {
+                attrs = attrs.with(TextAttribute::TableSeparatorLine);
+            }
+            runs.push(AttributeRun { range: (sep_start, sep_end), attrs });
+        }
+    }
+
+    // ── Process each data row ────────────────────────────────────────────
+    let mut body_row_count: usize = 0;
+    for row in &span.children {
+        let is_body = matches!(&row.kind, NodeKind::TableRow { header: false });
+        if is_body {
+            body_row_count += 1;
+        }
+        if !matches!(&row.kind, NodeKind::TableRow { .. }) {
+            continue;
+        }
+
+        let needs_h_sep = is_body && body_row_count > 1;
+
+        // Collect cell byte ranges to distinguish structural pipes from cell content.
+        let cell_ranges: Vec<(usize, usize)> = row
+            .children
+            .iter()
+            .filter(|c| matches!(c.kind, NodeKind::TableCell))
+            .map(|c| c.source_range)
+            .collect();
+
+        // Scan for pipe characters in the row.
+        let row_end = row.source_range.1.min(text.len());
+        let mut is_first_pipe = true;
+        for pos in row.source_range.0..row_end {
+            if text.as_bytes().get(pos) != Some(&b'|') {
+                continue;
+            }
+            let in_cell = cell_ranges.iter().any(|&(cs, ce)| pos >= cs && pos < ce);
+            if in_cell {
+                continue;
+            }
+            let mut pipe_attrs = syn.clone();
+            if !cursor_in {
+                pipe_attrs = pipe_attrs.with(TextAttribute::TablePipe);
+                if is_first_pipe && needs_h_sep {
+                    pipe_attrs = pipe_attrs.with(TextAttribute::TableSeparatorLine);
+                }
+            }
+            runs.push(AttributeRun { range: (pos, pos + 1), attrs: pipe_attrs });
+            is_first_pipe = false;
+        }
+
+        // Process cell children for inline formatting.
+        for cell in &row.children {
+            if !matches!(cell.kind, NodeKind::TableCell) {
+                continue;
+            }
+            for child in &cell.children {
+                collect_runs(text, child, cursor_pos, &[], runs);
+            }
+        }
     }
 }
 

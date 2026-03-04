@@ -92,17 +92,6 @@ fn blockquote_gets_bar_attribute() {
 }
 
 #[test]
-fn table_gets_monospace() {
-    let text = "| A | B |\n|---|---|\n| 1 | 2 |";
-    let spans = parse(text);
-    let runs = compute_attribute_runs(text, &spans, None);
-    assert!(
-        runs.iter().any(|r| r.attrs.contains(&TextAttribute::Monospace)),
-        "expected Monospace fallback for table"
-    );
-}
-
-#[test]
 fn h1_prefix_hidden_outside_cursor() {
     let text = "# Heading";
     let spans = parse(text);
@@ -314,3 +303,26 @@ fn nested_bold_italic_gets_both_attributes() {
         runs
     );
 }
+
+// ── Table inline formatting tests (Task 3) ───────────────────────────────────
+
+#[test]
+fn table_cell_bold_gets_bold_attribute() {
+    let text = "| **bold** | plain |\n|---|---|\n| a | b |";
+    let spans = parse(text);
+    let runs = compute_attribute_runs(text, &spans, None);
+    let bold = runs.iter().find(|r| r.attrs.contains(&TextAttribute::Bold));
+    assert!(bold.is_some(), "expected Bold attribute in table cell");
+}
+
+#[test]
+fn table_cell_italic_gets_italic_attribute() {
+    let text = "| *italic* | plain |\n|---|---|\n| a | b |";
+    let spans = parse(text);
+    let runs = compute_attribute_runs(text, &spans, None);
+    assert!(
+        runs.iter().any(|r| r.attrs.contains(&TextAttribute::Italic)),
+        "expected Italic attribute in table cell"
+    );
+}
+
