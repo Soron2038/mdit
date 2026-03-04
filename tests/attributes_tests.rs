@@ -73,3 +73,16 @@ fn code_block_gets_monospace_no_bg_color() {
     // Background color is now drawn via NSBezierPath overlay, not NSAttributedString.
     assert!(!attrs.contains(&TextAttribute::BackgroundColor("code_block_bg")));
 }
+
+#[test]
+fn table_separator_line_attribute_detectable() {
+    let set = AttributeSet::new(vec![TextAttribute::TableSeparatorLine]);
+    assert!(set.contains(&TextAttribute::TableSeparatorLine));
+    assert!(!set.contains(&TextAttribute::TablePipe));
+}
+
+#[test]
+fn table_pipe_attribute_detectable() {
+    let set = AttributeSet::new(vec![TextAttribute::TablePipe]);
+    assert!(set.contains(&TextAttribute::TablePipe));
+}

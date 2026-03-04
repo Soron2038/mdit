@@ -17,6 +17,13 @@ pub enum TextAttribute {
     /// Marks an H1/H2 heading paragraph: triggers a 1px separator line drawn
     /// above the heading (only when content precedes it in the document).
     HeadingSeparator,
+    /// Marks a thematic break (horizontal rule): triggers a centred
+    /// horizontal line drawn across the full width.
+    ThematicBreak,
+    /// Marks a table row boundary for horizontal separator line drawing.
+    TableSeparatorLine,
+    /// Marks a table pipe `|` position for vertical separator line drawing.
+    TablePipe,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -46,6 +53,13 @@ impl AttributeSet {
 
     pub fn attrs(&self) -> &[TextAttribute] {
         &self.0
+    }
+
+    /// Return a new set with `attr` appended.
+    pub fn with(&self, attr: TextAttribute) -> Self {
+        let mut v = self.0.clone();
+        v.push(attr);
+        Self(v)
     }
 
     // --- Constructors ---

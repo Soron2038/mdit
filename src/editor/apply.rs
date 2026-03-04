@@ -58,13 +58,25 @@ fn collect_recursive(spans: &[MarkdownSpan], text: &str, out: &mut Vec<CodeBlock
 }
 
 // ---------------------------------------------------------------------------
+// Layout positions computed during attribute application
+// ---------------------------------------------------------------------------
+
+/// Positions of elements that need custom drawing in the text view.
+pub struct LayoutPositions {
+    /// UTF-16 offsets of H1/H2 heading paragraph starts (separator lines).
+    pub heading_seps: Vec<usize>,
+    /// UTF-16 offsets of thematic breaks (horizontal rules).
+    pub thematic_breaks: Vec<usize>,
+}
+
+// ---------------------------------------------------------------------------
 // Public entry point
 // ---------------------------------------------------------------------------
 
 /// Apply `runs` to `storage`, replacing all previous text attributes.
 ///
-/// Returns the UTF-16 character offsets of all H1/H2 heading paragraph starts,
-/// used by the text view to draw 1px separator lines above headings.
+/// Returns layout positions used by the text view to draw separator lines
+/// and horizontal rules.
 ///
 /// Must be called from the main thread (NSTextStorage is not thread-safe).
 /// Safe to call from within `textStorage:didProcessEditing:` — the
@@ -74,10 +86,10 @@ pub fn apply_attribute_runs(
     text: &str,
     runs: &[AttributeRun],
     scheme: &ColorScheme,
-) -> Vec<usize> {
+) -> LayoutPositions {
     let text_len_u16 = text.encode_utf16().count();
     if text_len_u16 == 0 {
-        return Vec::new();
+        return LayoutPositions { heading_seps: Vec::new(), thematic_breaks: Vec::new() };
     }
 
     let full_range = NSRange { location: 0, length: text_len_u16 };
@@ -111,6 +123,7 @@ pub fn apply_attribute_runs(
 
     // ── Per-run overrides ─────────────────────────────────────────────────
     let mut heading_sep_positions: Vec<usize> = Vec::new();
+    let mut thematic_break_positions: Vec<usize> = Vec::new();
 
     for run in runs {
         let start_u16 = byte_to_utf16(text, run.range.0);
@@ -140,9 +153,16 @@ pub fn apply_attribute_runs(
                 heading_sep_positions.push(start_u16);
             }
         }
+
+        if run.attrs.contains(&TextAttribute::ThematicBreak) {
+            thematic_break_positions.push(start_u16);
+        }
     }
 
-    heading_sep_positions
+    LayoutPositions {
+        heading_seps: heading_sep_positions,
+        thematic_breaks: thematic_break_positions,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -219,7 +239,10 @@ fn apply_attr_set(
             TextAttribute::ListMarker
             | TextAttribute::BlockquoteBar
             | TextAttribute::LineSpacing(_)
-            | TextAttribute::HeadingSeparator => {}
+            | TextAttribute::HeadingSeparator
+            | TextAttribute::ThematicBreak
+            | TextAttribute::TableSeparatorLine
+            | TextAttribute::TablePipe => {}
         }
     }
 }
