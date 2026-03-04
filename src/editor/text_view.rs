@@ -69,6 +69,7 @@ define_class!(
             self.draw_heading_separators();
             self.draw_thematic_breaks();
             self.draw_table_h_separators();
+            self.draw_table_v_separators();
         }
 
         /// Timer callback — clears the copy-feedback state and triggers a redraw
@@ -321,6 +322,65 @@ impl MditTextView {
             let line_rect = NSRect::new(
                 NSPoint::new(x_start, y - 0.25),
                 NSSize::new(x_end - x_start, 0.5),
+            );
+            NSRectFill(line_rect);
+        }
+    }
+
+    /// Draw vertical separator lines at table pipe positions.
+    fn draw_table_v_separators(&self) {
+        let delegate_ref = self.ivars().delegate.borrow();
+        let delegate = match delegate_ref.as_ref() {
+            Some(d) => d,
+            None => return,
+        };
+        let positions = delegate.table_pipe_sep_positions();
+        if positions.is_empty() {
+            return;
+        }
+
+        let layout_manager = match unsafe { self.layoutManager() } {
+            Some(lm) => lm,
+            None => return,
+        };
+
+        let tc_origin = self.textContainerOrigin();
+
+        let sep_color = NSColor::separatorColor();
+        sep_color.setFill();
+
+        let null_ptr = std::ptr::null_mut::<objc2_foundation::NSRange>();
+
+        for &utf16_pos in &positions {
+            let glyph_idx: usize =
+                unsafe { msg_send![&*layout_manager, glyphIndexForCharacterAtIndex: utf16_pos] };
+            if glyph_idx >= usize::MAX / 2 {
+                continue;
+            }
+
+            let frag_rect: NSRect = unsafe {
+                msg_send![
+                    &*layout_manager,
+                    lineFragmentRectForGlyphAtIndex: glyph_idx,
+                    effectiveRange: null_ptr
+                ]
+            };
+            if frag_rect.size.height == 0.0 {
+                continue;
+            }
+
+            // Glyph location within the line fragment.
+            let glyph_loc: NSPoint = unsafe {
+                msg_send![&*layout_manager, locationForGlyphAtIndex: glyph_idx]
+            };
+
+            let x = frag_rect.origin.x + glyph_loc.x + tc_origin.x;
+            let y_top = frag_rect.origin.y + tc_origin.y;
+            let y_bottom = y_top + frag_rect.size.height;
+
+            let line_rect = NSRect::new(
+                NSPoint::new(x - 0.25, y_top),
+                NSSize::new(0.5, y_bottom - y_top),
             );
             NSRectFill(line_rect);
         }
