@@ -171,7 +171,7 @@ pub fn compute_inline_toggle(
     let (layers, consumed_before, consumed_after) =
         find_surrounding_markers(before, after);
 
-    if layers.iter().any(|m| *m == marker) {
+    if layers.contains(&marker) {
         // Case 1: marker surrounds the selection — remove it, keep other layers.
         let new_layers = toggle_marker_in_layers(&layers, marker);
         let replacement = wrap_with_layers(selected, &new_layers);
@@ -179,7 +179,7 @@ pub fn compute_inline_toggle(
     } else {
         // Check if markers are INSIDE the selection (hidden-marker case).
         let (inner_layers, inner_content) = peel_inline_markers(selected);
-        if inner_layers.iter().any(|m| *m == marker) {
+        if inner_layers.contains(&marker) {
             // Case 2: marker inside selection — remove it.
             let new_layers = toggle_marker_in_layers(&inner_layers, marker);
             let replacement = wrap_with_layers(inner_content, &new_layers);

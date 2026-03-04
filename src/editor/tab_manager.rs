@@ -49,6 +49,7 @@ pub enum TabCloseResult {
 /// Replaces the separate `RefCell<Vec<DocumentState>>` + `Cell<usize>` pair
 /// that previously lived in `AppDelegateIvars`, providing a single coherent
 /// borrow point and encapsulated index management.
+#[derive(Default)]
 pub struct TabManager {
     tabs: Vec<DocumentState>,
     active: usize,
@@ -56,7 +57,7 @@ pub struct TabManager {
 
 impl TabManager {
     pub fn new() -> Self {
-        Self { tabs: Vec::new(), active: 0 }
+        Self::default()
     }
 
     /// Add a tab and return its index (always appended at the end).
@@ -110,6 +111,11 @@ impl TabManager {
     /// Number of open tabs.
     pub fn len(&self) -> usize {
         self.tabs.len()
+    }
+
+    /// True when no tabs are open.
+    pub fn is_empty(&self) -> bool {
+        self.tabs.is_empty()
     }
 
     /// Find the index of a tab by its file path.
