@@ -1,4 +1,4 @@
-use crate::markdown::attributes::AttributeSet;
+use crate::markdown::attributes::{AttributeSet, TextAttribute};
 use crate::markdown::parser::{MarkdownSpan, NodeKind};
 
 // ---------------------------------------------------------------------------
@@ -26,7 +26,7 @@ pub fn compute_attribute_runs(
 ) -> Vec<AttributeRun> {
     let mut runs = Vec::new();
     for span in spans {
-        collect_runs(text, span, cursor_pos, &mut runs);
+        collect_runs(text, span, cursor_pos, &[], &mut runs);
     }
     fill_gaps(text.len(), runs)
 }
@@ -56,6 +56,7 @@ fn collect_runs(
     text: &str,
     span: &MarkdownSpan,
     cursor_pos: Option<usize>,
+    inherited: &[TextAttribute],
     runs: &mut Vec<AttributeRun>,
 ) {
     let (start, end) = span.source_range;
@@ -69,91 +70,19 @@ fn collect_runs(
 
     match &span.kind {
         NodeKind::Strong => {
-            // "**content**" — 2-char markers on each side
-            let m = 2.min(end - start);
-            runs.push(AttributeRun { range: (start, start + m), attrs: syn.clone() });
-            if start + m < end.saturating_sub(m) {
-                runs.push(AttributeRun {
-                    range: (start + m, end - m),
-                    attrs: AttributeSet::for_strong(),
-                });
-            }
-            runs.push(AttributeRun { range: (end - m, end), attrs: syn });
+            collect_strong(text, span, cursor_pos, inherited, &syn, runs);
         }
         NodeKind::Emph => {
-            // "*content*" — 1-char markers
-            runs.push(AttributeRun { range: (start, start + 1), attrs: syn.clone() });
-            if start + 1 < end.saturating_sub(1) {
-                runs.push(AttributeRun {
-                    range: (start + 1, end - 1),
-                    attrs: AttributeSet::for_emph(),
-                });
-            }
-            runs.push(AttributeRun { range: (end - 1, end), attrs: syn });
+            collect_emph(text, span, cursor_pos, inherited, &syn, runs);
         }
         NodeKind::Code => {
-            // "`content`" — 1-char markers
-            runs.push(AttributeRun { range: (start, start + 1), attrs: syn.clone() });
-            if start + 1 < end.saturating_sub(1) {
-                runs.push(AttributeRun {
-                    range: (start + 1, end - 1),
-                    attrs: AttributeSet::for_inline_code(),
-                });
-            }
-            runs.push(AttributeRun { range: (end - 1, end), attrs: syn });
+            collect_code(start, end, &syn, runs);
         }
         NodeKind::Heading { level } => {
-            // Distinguish ATX headings ("# …") from setext headings ("---" underline style).
-            let is_atx = text.as_bytes().get(start).copied() == Some(b'#');
-
-            if is_atx {
-                // ATX: the "# " (or "## " etc.) prefix is hidden as a syntax marker.
-                let prefix_len = (*level as usize + 1).min(end - start);
-                runs.push(AttributeRun { range: (start, start + prefix_len), attrs: syn });
-                if start + prefix_len < end {
-                    runs.push(AttributeRun {
-                        range: (start + prefix_len, end),
-                        attrs: AttributeSet::for_heading(*level),
-                    });
-                }
-            } else {
-                // Setext: the underline line (--- / ===) is on the last line of the span.
-                // Everything before the final newline is heading content; the last line
-                // is a syntax marker (shown/hidden based on cursor position).
-                let span_slice = &text[start..end];
-                if let Some(nl_rel) = span_slice.rfind('\n') {
-                    let nl_abs = start + nl_rel;
-                    if start < nl_abs {
-                        runs.push(AttributeRun {
-                            range: (start, nl_abs),
-                            attrs: AttributeSet::for_heading(*level),
-                        });
-                    }
-                    if nl_abs < end {
-                        runs.push(AttributeRun {
-                            range: (nl_abs, end),
-                            attrs: syn, // shown/hidden based on cursor position
-                        });
-                    }
-                } else {
-                    // No newline in span (degenerate) — treat whole range as content.
-                    runs.push(AttributeRun {
-                        range: (start, end),
-                        attrs: AttributeSet::for_heading(*level),
-                    });
-                }
-            }
+            collect_heading(text, start, end, *level, &syn, runs);
         }
         NodeKind::Strikethrough => {
-            let m = 2.min(end - start);
-            runs.push(AttributeRun { range: (start, start + m), attrs: syn.clone() });
-            if start + m < end.saturating_sub(m) {
-                runs.push(AttributeRun {
-                    range: (start + m, end - m),
-                    attrs: AttributeSet::for_strikethrough(),
-                });
-            }
-            runs.push(AttributeRun { range: (end - m, end), attrs: syn });
+            collect_strikethrough(text, span, cursor_pos, inherited, &syn, runs);
         }
         NodeKind::Link { .. } => {
             runs.push(AttributeRun {
@@ -162,48 +91,7 @@ fn collect_runs(
             });
         }
         NodeKind::CodeBlock { .. } => {
-            let slice = &text[start..end];
-            if let Some(open_nl) = slice.find('\n') {
-                let open_end = start + open_nl + 1; // includes the \n
-
-                // Start of closing fence = start of last line in text[open_end..end].
-                // "Last line" starts right after the second-to-last \n.
-                let suffix = &text[open_end..end];
-                let close_start = open_end + if !suffix.is_empty() {
-                    suffix[..suffix.len() - 1]
-                        .rfind('\n')
-                        .map(|p| p + 1)
-                        .unwrap_or(0)
-                } else {
-                    0
-                };
-
-                // Opening fence: hidden/visible based on cursor position ON that line.
-                runs.push(AttributeRun {
-                    range: (start, open_end),
-                    attrs: syntax_attrs(cursor_pos, (start, open_end)),
-                });
-                // Code content (may be empty for a block with no body).
-                if open_end < close_start {
-                    runs.push(AttributeRun {
-                        range: (open_end, close_start),
-                        attrs: AttributeSet::for_code_block(),
-                    });
-                }
-                // Closing fence.
-                if close_start < end {
-                    runs.push(AttributeRun {
-                        range: (close_start, end),
-                        attrs: syntax_attrs(cursor_pos, (close_start, end)),
-                    });
-                }
-            } else {
-                // Degenerate: no newline — treat whole span as code content.
-                runs.push(AttributeRun {
-                    range: (start, end),
-                    attrs: AttributeSet::for_code_block(),
-                });
-            }
+            collect_code_block(text, span, cursor_pos, runs);
         }
         NodeKind::BlockQuote => {
             runs.push(AttributeRun {
@@ -212,51 +100,264 @@ fn collect_runs(
             });
         }
         NodeKind::List => {
-            // Container only — visual structure comes from Item rendering.
             for child in &span.children {
-                collect_runs(text, child, cursor_pos, runs);
+                collect_runs(text, child, cursor_pos, inherited, runs);
             }
         }
         NodeKind::Item => {
-            // The bullet/number marker (e.g. "- " or "1. ") is implicit in the
-            // source but has no child node.  Its range is from item start to
-            // the start of the first child (usually a Paragraph).
-            let marker_end = span
-                .children
-                .first()
-                .map(|c| c.source_range.0)
-                .unwrap_or(start + 2)
-                .min(end);
-            if start < marker_end {
-                runs.push(AttributeRun {
-                    range: (start, marker_end),
-                    attrs: AttributeSet::for_list_marker(),
-                });
-            }
-            for child in &span.children {
-                collect_runs(text, child, cursor_pos, runs);
-            }
+            collect_item(text, span, cursor_pos, inherited, runs);
         }
         NodeKind::Table => {
-            // Phase-1 fallback: render the whole table block as monospace.
             runs.push(AttributeRun {
                 range: (start, end),
                 attrs: AttributeSet::for_code_block(),
             });
         }
         NodeKind::Footnote => {
-            // Footnote definitions/references rendered in muted link color.
             runs.push(AttributeRun {
                 range: (start, end),
                 attrs: AttributeSet::for_link(),
             });
         }
-        // For remaining container nodes (Paragraph, Text, …) just recurse.
         _ => {
-            for child in &span.children {
-                collect_runs(text, child, cursor_pos, runs);
+            if span.children.is_empty() {
+                if !inherited.is_empty() {
+                    runs.push(AttributeRun {
+                        range: (start, end),
+                        attrs: AttributeSet::new(inherited.to_vec()),
+                    });
+                }
+            } else {
+                for child in &span.children {
+                    collect_runs(text, child, cursor_pos, inherited, runs);
+                }
             }
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Extracted match-arm helpers
+// ---------------------------------------------------------------------------
+
+/// "**content**" — symmetric 2-char markers with Bold attribute.
+fn collect_strong(
+    text: &str,
+    span: &MarkdownSpan,
+    cursor_pos: Option<usize>,
+    inherited: &[TextAttribute],
+    syn: &AttributeSet,
+    runs: &mut Vec<AttributeRun>,
+) {
+    let (start, end) = (span.source_range.0, span.source_range.1.min(text.len()));
+    let m = 2.min(end - start);
+    runs.push(AttributeRun { range: (start, start + m), attrs: syn.clone() });
+    let mut child_attrs = inherited.to_vec();
+    child_attrs.push(TextAttribute::Bold);
+    if span.children.is_empty() {
+        if start + m < end.saturating_sub(m) {
+            runs.push(AttributeRun {
+                range: (start + m, end - m),
+                attrs: AttributeSet::new(child_attrs),
+            });
+        }
+    } else {
+        for child in &span.children {
+            collect_runs(text, child, cursor_pos, &child_attrs, runs);
+        }
+    }
+    runs.push(AttributeRun { range: (end - m, end), attrs: syn.clone() });
+}
+
+/// "*content*" — symmetric 1-char markers with Italic attribute.
+fn collect_emph(
+    text: &str,
+    span: &MarkdownSpan,
+    cursor_pos: Option<usize>,
+    inherited: &[TextAttribute],
+    syn: &AttributeSet,
+    runs: &mut Vec<AttributeRun>,
+) {
+    let (start, end) = (span.source_range.0, span.source_range.1.min(text.len()));
+    runs.push(AttributeRun { range: (start, start + 1), attrs: syn.clone() });
+    let mut child_attrs = inherited.to_vec();
+    child_attrs.push(TextAttribute::Italic);
+    if span.children.is_empty() {
+        if start + 1 < end.saturating_sub(1) {
+            runs.push(AttributeRun {
+                range: (start + 1, end - 1),
+                attrs: AttributeSet::new(child_attrs),
+            });
+        }
+    } else {
+        for child in &span.children {
+            collect_runs(text, child, cursor_pos, &child_attrs, runs);
+        }
+    }
+    runs.push(AttributeRun { range: (end - 1, end), attrs: syn.clone() });
+}
+
+/// "`content`" — 1-char backtick markers with inline-code styling.
+fn collect_code(
+    start: usize,
+    end: usize,
+    syn: &AttributeSet,
+    runs: &mut Vec<AttributeRun>,
+) {
+    runs.push(AttributeRun { range: (start, start + 1), attrs: syn.clone() });
+    if start + 1 < end.saturating_sub(1) {
+        runs.push(AttributeRun {
+            range: (start + 1, end - 1),
+            attrs: AttributeSet::for_inline_code(),
+        });
+    }
+    runs.push(AttributeRun { range: (end - 1, end), attrs: syn.clone() });
+}
+
+/// ATX (`# …`) and setext (underline) headings.
+fn collect_heading(
+    text: &str,
+    start: usize,
+    end: usize,
+    level: u8,
+    syn: &AttributeSet,
+    runs: &mut Vec<AttributeRun>,
+) {
+    let is_atx = text.as_bytes().get(start).copied() == Some(b'#');
+
+    if is_atx {
+        let prefix_len = (level as usize + 1).min(end - start);
+        runs.push(AttributeRun { range: (start, start + prefix_len), attrs: syn.clone() });
+        if start + prefix_len < end {
+            runs.push(AttributeRun {
+                range: (start + prefix_len, end),
+                attrs: AttributeSet::for_heading(level),
+            });
+        }
+    } else {
+        let span_slice = &text[start..end];
+        if let Some(nl_rel) = span_slice.rfind('\n') {
+            let nl_abs = start + nl_rel;
+            if start < nl_abs {
+                runs.push(AttributeRun {
+                    range: (start, nl_abs),
+                    attrs: AttributeSet::for_heading(level),
+                });
+            }
+            if nl_abs < end {
+                runs.push(AttributeRun {
+                    range: (nl_abs, end),
+                    attrs: syn.clone(),
+                });
+            }
+        } else {
+            runs.push(AttributeRun {
+                range: (start, end),
+                attrs: AttributeSet::for_heading(level),
+            });
+        }
+    }
+}
+
+/// "~~content~~" — symmetric 2-char markers with Strikethrough attribute.
+fn collect_strikethrough(
+    text: &str,
+    span: &MarkdownSpan,
+    cursor_pos: Option<usize>,
+    inherited: &[TextAttribute],
+    syn: &AttributeSet,
+    runs: &mut Vec<AttributeRun>,
+) {
+    let (start, end) = (span.source_range.0, span.source_range.1.min(text.len()));
+    let m = 2.min(end - start);
+    runs.push(AttributeRun { range: (start, start + m), attrs: syn.clone() });
+    let mut child_attrs = inherited.to_vec();
+    child_attrs.push(TextAttribute::Strikethrough);
+    child_attrs.push(TextAttribute::ForegroundColor("strikethrough"));
+    if span.children.is_empty() {
+        if start + m < end.saturating_sub(m) {
+            runs.push(AttributeRun {
+                range: (start + m, end - m),
+                attrs: AttributeSet::new(child_attrs),
+            });
+        }
+    } else {
+        for child in &span.children {
+            collect_runs(text, child, cursor_pos, &child_attrs, runs);
+        }
+    }
+    runs.push(AttributeRun { range: (end - m, end), attrs: syn.clone() });
+}
+
+/// Fenced code block: opening fence, code content, closing fence.
+fn collect_code_block(
+    text: &str,
+    span: &MarkdownSpan,
+    cursor_pos: Option<usize>,
+    runs: &mut Vec<AttributeRun>,
+) {
+    let (start, end) = (span.source_range.0, span.source_range.1.min(text.len()));
+    let slice = &text[start..end];
+    if let Some(open_nl) = slice.find('\n') {
+        let open_end = start + open_nl + 1;
+
+        let suffix = &text[open_end..end];
+        let close_start = open_end + if !suffix.is_empty() {
+            suffix[..suffix.len() - 1]
+                .rfind('\n')
+                .map(|p| p + 1)
+                .unwrap_or(0)
+        } else {
+            0
+        };
+
+        runs.push(AttributeRun {
+            range: (start, open_end),
+            attrs: syntax_attrs(cursor_pos, (start, open_end)),
+        });
+        if open_end < close_start {
+            runs.push(AttributeRun {
+                range: (open_end, close_start),
+                attrs: AttributeSet::for_code_block(),
+            });
+        }
+        if close_start < end {
+            runs.push(AttributeRun {
+                range: (close_start, end),
+                attrs: syntax_attrs(cursor_pos, (close_start, end)),
+            });
+        }
+    } else {
+        runs.push(AttributeRun {
+            range: (start, end),
+            attrs: AttributeSet::for_code_block(),
+        });
+    }
+}
+
+/// List item: bullet/number marker + child content.
+fn collect_item(
+    text: &str,
+    span: &MarkdownSpan,
+    cursor_pos: Option<usize>,
+    inherited: &[TextAttribute],
+    runs: &mut Vec<AttributeRun>,
+) {
+    let (start, end) = (span.source_range.0, span.source_range.1.min(text.len()));
+    let marker_end = span
+        .children
+        .first()
+        .map(|c| c.source_range.0)
+        .unwrap_or(start + 2)
+        .min(end);
+    if start < marker_end {
+        runs.push(AttributeRun {
+            range: (start, marker_end),
+            attrs: AttributeSet::for_list_marker(),
+        });
+    }
+    for child in &span.children {
+        collect_runs(text, child, cursor_pos, inherited, runs);
     }
 }
 

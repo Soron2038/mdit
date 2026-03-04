@@ -1,4 +1,4 @@
-use std::cell::{Cell, OnceCell, RefCell};
+use std::cell::{OnceCell, RefCell};
 
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, ProtocolObject};
@@ -14,11 +14,12 @@ use objc2_foundation::{
 };
 
 use mdit::editor::document_state::DocumentState;
+use mdit::editor::tab_manager::{TabCloseResult, TabManager};
 use mdit::menu::build_main_menu;
 use mdit::ui::appearance::ColorScheme;
 use mdit::ui::path_bar::PathBar;
 use mdit::ui::sidebar::{FormattingSidebar, SIDEBAR_W};
-use mdit::ui::tab_bar::{tab_label, TabBar};
+use mdit::ui::tab_bar::TabBar;
 
 // ---------------------------------------------------------------------------
 // Layout constants
@@ -37,8 +38,7 @@ struct AppDelegateIvars {
     sidebar: OnceCell<FormattingSidebar>,
     tab_bar: OnceCell<TabBar>,
     path_bar: OnceCell<PathBar>,
-    tabs: RefCell<Vec<DocumentState>>,
-    active_index: Cell<usize>,
+    tab_manager: RefCell<TabManager>,
 }
 
 define_class!(
@@ -145,12 +145,11 @@ define_class!(
                 sb.set_height(content_h);
             }
             let frame = self.content_frame();
-            let idx = self.ivars().active_index.get();
-            let tabs = self.ivars().tabs.borrow();
-            if let Some(t) = tabs.get(idx) {
+            let tm = self.ivars().tab_manager.borrow();
+            if let Some(t) = tm.active() {
                 t.scroll_view.setFrame(frame);
             }
-            drop(tabs);
+            drop(tm);
             self.update_text_container_inset();
         }
     }
@@ -170,35 +169,35 @@ define_class!(
         #[unsafe(method(applyBold:))]
         fn apply_bold(&self, _sender: &AnyObject) {
             if let Some(tv) = self.active_text_view() {
-                wrap_selection(&tv, "**", "**");
+                toggle_inline_wrap(&tv, "**");
             }
         }
 
         #[unsafe(method(applyItalic:))]
         fn apply_italic(&self, _sender: &AnyObject) {
             if let Some(tv) = self.active_text_view() {
-                wrap_selection(&tv, "_", "_");
+                toggle_inline_wrap(&tv, "_");
             }
         }
 
         #[unsafe(method(applyInlineCode:))]
         fn apply_inline_code(&self, _sender: &AnyObject) {
             if let Some(tv) = self.active_text_view() {
-                wrap_selection(&tv, "`", "`");
+                toggle_inline_wrap(&tv, "`");
             }
         }
 
         #[unsafe(method(applyLink:))]
         fn apply_link(&self, _sender: &AnyObject) {
             if let Some(tv) = self.active_text_view() {
-                wrap_selection(&tv, "[", "]()");
+                insert_link_wrap(&tv, "[", "]()");
             }
         }
 
         #[unsafe(method(applyStrikethrough:))]
         fn apply_strikethrough(&self, _sender: &AnyObject) {
             if let Some(tv) = self.active_text_view() {
-                wrap_selection(&tv, "~~", "~~");
+                toggle_inline_wrap(&tv, "~~");
             }
         }
 
@@ -244,13 +243,11 @@ define_class!(
 
             // Check if already open
             {
-                let tabs = self.ivars().tabs.borrow();
-                for (i, t) in tabs.iter().enumerate() {
-                    if t.url.borrow().as_deref() == Some(path.as_path()) {
-                        drop(tabs);
-                        self.switch_to_tab(i);
-                        return;
-                    }
+                let tm = self.ivars().tab_manager.borrow();
+                if let Some(i) = tm.find_by_path(&path) {
+                    drop(tm);
+                    self.switch_to_tab(i);
+                    return;
                 }
             }
 
@@ -263,10 +260,9 @@ define_class!(
             };
 
             self.add_empty_tab();
-            let idx = self.ivars().active_index.get();
             {
-                let tabs = self.ivars().tabs.borrow();
-                if let Some(t) = tabs.get(idx) {
+                let tm = self.ivars().tab_manager.borrow();
+                if let Some(t) = tm.active() {
                     *t.url.borrow_mut() = Some(path.clone());
                     t.is_dirty.set(false);
                     unsafe {
@@ -316,35 +312,35 @@ define_class!(
         #[unsafe(method(applyH1:))]
         fn apply_h1(&self, _sender: &AnyObject) {
             if let Some(tv) = self.active_text_view() {
-                prepend_line(&tv, "# ");
+                apply_block_format(&tv, "# ");
             }
         }
 
         #[unsafe(method(applyH2:))]
         fn apply_h2(&self, _sender: &AnyObject) {
             if let Some(tv) = self.active_text_view() {
-                prepend_line(&tv, "## ");
+                apply_block_format(&tv, "## ");
             }
         }
 
         #[unsafe(method(applyH3:))]
         fn apply_h3(&self, _sender: &AnyObject) {
             if let Some(tv) = self.active_text_view() {
-                prepend_line(&tv, "### ");
+                apply_block_format(&tv, "### ");
             }
         }
 
         #[unsafe(method(applyNormal:))]
         fn apply_normal(&self, _sender: &AnyObject) {
             if let Some(tv) = self.active_text_view() {
-                strip_line_prefix(&tv);
+                apply_block_format(&tv, "");
             }
         }
 
         #[unsafe(method(applyBlockquote:))]
         fn apply_blockquote(&self, _sender: &AnyObject) {
             if let Some(tv) = self.active_text_view() {
-                prepend_line(&tv, "> ");
+                apply_block_format(&tv, "> ");
             }
         }
 
@@ -369,15 +365,14 @@ define_class!(
     unsafe impl NSTextDelegate for AppDelegate {
         #[unsafe(method(textDidChange:))]
         fn text_did_change(&self, _notification: &NSNotification) {
-            let idx = self.ivars().active_index.get();
             let already_dirty = {
-                let tabs = self.ivars().tabs.borrow();
-                tabs.get(idx).map(|t| t.is_dirty.get()).unwrap_or(true)
+                let tm = self.ivars().tab_manager.borrow();
+                tm.active().map(|t| t.is_dirty.get()).unwrap_or(true)
             };
             if !already_dirty {
                 {
-                    let tabs = self.ivars().tabs.borrow();
-                    if let Some(t) = tabs.get(idx) {
+                    let tm = self.ivars().tab_manager.borrow();
+                    if let Some(t) = tm.active() {
                         t.is_dirty.set(true);
                     }
                 }
@@ -417,9 +412,8 @@ impl AppDelegate {
 
     /// Active text view for formatting actions.
     fn active_text_view(&self) -> Option<Retained<NSTextView>> {
-        let idx = self.ivars().active_index.get();
-        let tabs = self.ivars().tabs.borrow();
-        tabs.get(idx).map(|t| t.text_view.clone())
+        let tm = self.ivars().tab_manager.borrow();
+        tm.active().map(|t| t.text_view.clone())
     }
 
     /// Rebuild tab bar buttons.
@@ -431,18 +425,8 @@ impl AppDelegate {
             return;
         };
         let mtm = self.mtm();
-        let active = self.ivars().active_index.get();
         let target: &AnyObject = unsafe { &*(self as *const AppDelegate as *const AnyObject) };
-        let labels: Vec<(String, bool)> = {
-            let tabs = self.ivars().tabs.borrow();
-            tabs.iter()
-                .enumerate()
-                .map(|(i, t)| {
-                    let url = t.url.borrow();
-                    (tab_label(url.as_deref(), t.is_dirty.get()), i == active)
-                })
-                .collect()
-        };
+        let labels = self.ivars().tab_manager.borrow().tab_labels();
         tab_bar.rebuild(mtm, &labels, target);
     }
 
@@ -455,20 +439,19 @@ impl AppDelegate {
 
         // Remove old scroll view
         {
-            let tabs = self.ivars().tabs.borrow();
-            let old = self.ivars().active_index.get();
-            if let Some(t) = tabs.get(old) {
+            let tm = self.ivars().tab_manager.borrow();
+            if let Some(t) = tm.active() {
                 t.scroll_view.removeFromSuperview();
             }
         }
 
-        self.ivars().active_index.set(index);
+        self.ivars().tab_manager.borrow_mut().switch_to(index);
 
         // Insert new scroll view
         let frame = self.content_frame();
         {
-            let tabs = self.ivars().tabs.borrow();
-            if let Some(t) = tabs.get(index) {
+            let tm = self.ivars().tab_manager.borrow();
+            if let Some(t) = tm.get(index) {
                 t.scroll_view.setFrame(frame);
                 content.addSubview(&t.scroll_view);
             }
@@ -476,8 +459,8 @@ impl AppDelegate {
 
         // Update path bar
         if let Some(pb) = self.ivars().path_bar.get() {
-            let tabs = self.ivars().tabs.borrow();
-            let url = tabs.get(index).and_then(|t| t.url.borrow().clone());
+            let tm = self.ivars().tab_manager.borrow();
+            let url = tm.get(index).and_then(|t| t.url.borrow().clone());
             pb.update(url.as_deref());
         }
 
@@ -488,30 +471,21 @@ impl AppDelegate {
     /// Create a new empty tab and activate it.
     fn add_empty_tab(&self) {
         let mtm = self.mtm();
-        let scheme = {
-            let tabs = self.ivars().tabs.borrow();
-            tabs.first()
-                .map(|t| t.editor_delegate.scheme())
-                .unwrap_or_else(ColorScheme::light)
-        };
+        let scheme = self.ivars().tab_manager.borrow().first_scheme()
+            .unwrap_or_else(ColorScheme::light);
         let frame = self.content_frame();
         let tab = DocumentState::new_empty(mtm, scheme, frame);
-        // Wire delegate so textViewDidChangeSelection: fires
         tab.text_view
             .setDelegate(Some(ProtocolObject::from_ref(self)));
-        let new_idx = {
-            let mut tabs = self.ivars().tabs.borrow_mut();
-            tabs.push(tab);
-            tabs.len() - 1
-        };
+        let new_idx = self.ivars().tab_manager.borrow_mut().add(tab);
         self.switch_to_tab(new_idx);
     }
 
     /// Switch the color scheme and immediately re-render all documents.
     fn apply_scheme(&self, scheme: ColorScheme) {
-        let tabs = self.ivars().tabs.borrow();
-        let active = self.ivars().active_index.get();
-        for (i, tab) in tabs.iter().enumerate() {
+        let tm = self.ivars().tab_manager.borrow();
+        let active = tm.active_index();
+        for (i, tab) in tm.iter().enumerate() {
             tab.editor_delegate.set_scheme(scheme);
             let (r, g, b) = scheme.background;
             let bg = NSColor::colorWithRed_green_blue_alpha(r, g, b, 1.0);
@@ -523,6 +497,7 @@ impl AppDelegate {
                 }
             }
         }
+        drop(tm);
         if let Some(sb) = self.ivars().sidebar.get() {
             sb.apply_separator_color();
         }
@@ -533,21 +508,20 @@ impl AppDelegate {
 
     /// Close tab at `index` — dirty-check, then remove (or clear if last).
     fn close_tab(&self, index: usize) {
-        let is_dirty = {
-            let tabs = self.ivars().tabs.borrow();
-            tabs.get(index).map(|t| t.is_dirty.get()).unwrap_or(false)
-        };
-        let filename = {
-            let tabs = self.ivars().tabs.borrow();
-            tabs.get(index)
-                .and_then(|t| {
-                    t.url
-                        .borrow()
-                        .as_deref()
-                        .and_then(|p| p.file_name())
-                        .map(|n| n.to_string_lossy().into_owned())
-                })
-                .unwrap_or_else(|| "Untitled".to_string())
+        let (is_dirty, filename) = {
+            let tm = self.ivars().tab_manager.borrow();
+            let tab = match tm.get(index) {
+                Some(t) => t,
+                None => return,
+            };
+            let dirty = tab.is_dirty.get();
+            let name = tab.url
+                .borrow()
+                .as_deref()
+                .and_then(|p| p.file_name())
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "Untitled".to_string());
+            (dirty, name)
         };
 
         if is_dirty {
@@ -558,66 +532,57 @@ impl AppDelegate {
             }
         }
 
-        // Last tab → only clear content, don’t remove tab
-        if self.ivars().tabs.borrow().len() == 1 {
-            let tabs = self.ivars().tabs.borrow();
-            if let Some(t) = tabs.first() {
-                unsafe {
-                    if let Some(storage) = t.text_view.textStorage() {
-                        let full = NSRange {
-                            location: 0,
-                            length: storage.length(),
-                        };
-                        let empty = NSString::from_str("");
-                        storage.replaceCharactersInRange_withString(full, &empty);
-                    }
-                }
-                *t.url.borrow_mut() = None;
-                t.is_dirty.set(false);
-            }
-            drop(tabs);
-            self.rebuild_tab_bar();
-            if let Some(pb) = self.ivars().path_bar.get() {
-                pb.update(None);
-            }
-            return;
-        }
-
-        // Remove scroll view from superview
+        // Remove scroll view before mutating the manager.
         {
-            let tabs = self.ivars().tabs.borrow();
-            if let Some(t) = tabs.get(index) {
+            let tm = self.ivars().tab_manager.borrow();
+            if let Some(t) = tm.get(index) {
                 t.scroll_view.removeFromSuperview();
             }
         }
-        self.ivars().tabs.borrow_mut().remove(index);
 
-        // Correct active index
-        let new_idx = {
-            let len = self.ivars().tabs.borrow().len();
-            let cur = self.ivars().active_index.get();
-            if index <= cur && cur > 0 {
-                cur - 1
-            } else {
-                cur.min(len - 1)
+        let result = self.ivars().tab_manager.borrow_mut().remove(index);
+
+        match result {
+            TabCloseResult::LastTab => {
+                // Only tab — clear contents instead of removing.
+                let tm = self.ivars().tab_manager.borrow();
+                if let Some(t) = tm.active() {
+                    unsafe {
+                        if let Some(storage) = t.text_view.textStorage() {
+                            let full = NSRange { location: 0, length: storage.length() };
+                            let empty = NSString::from_str("");
+                            storage.replaceCharactersInRange_withString(full, &empty);
+                        }
+                    }
+                    *t.url.borrow_mut() = None;
+                    t.is_dirty.set(false);
+                    // Re-add the scroll view (we removed it above).
+                    let content = self.ivars().window.get().unwrap().contentView().unwrap();
+                    t.scroll_view.setFrame(self.content_frame());
+                    content.addSubview(&t.scroll_view);
+                }
+                drop(tm);
+                self.rebuild_tab_bar();
+                if let Some(pb) = self.ivars().path_bar.get() {
+                    pb.update(None);
+                }
             }
-        };
-        self.switch_to_tab(new_idx);
+            TabCloseResult::Removed { new_active } => {
+                self.switch_to_tab(new_active);
+            }
+        }
     }
 
     /// Save tab at `index` (None = active tab).
     fn perform_save(&self, index: Option<usize>) {
-        let idx = index.unwrap_or_else(|| self.ivars().active_index.get());
+        let idx = index.unwrap_or_else(|| self.ivars().tab_manager.borrow().active_index());
 
         // Determine path (or open NSSavePanel)
         let existing_url: Option<std::path::PathBuf> = {
-            let tabs_borrow = self.ivars().tabs.borrow();
-            match tabs_borrow.get(idx) {
+            let tm = self.ivars().tab_manager.borrow();
+            match tm.get(idx) {
                 None => return,
-                Some(t) => {
-                    let url = t.url.borrow().clone();
-                    url
-                }
+                Some(t) => t.url.borrow().clone(),
             }
         };
         let path: std::path::PathBuf = match existing_url {
@@ -630,8 +595,8 @@ impl AppDelegate {
 
         // Read content from TextStorage
         let content = {
-            let tabs = self.ivars().tabs.borrow();
-            let tab = match tabs.get(idx) {
+            let tm = self.ivars().tab_manager.borrow();
+            let tab = match tm.get(idx) {
                 Some(t) => t,
                 None => return,
             };
@@ -648,14 +613,14 @@ impl AppDelegate {
 
         // Update state
         {
-            let tabs = self.ivars().tabs.borrow();
-            if let Some(t) = tabs.get(idx) {
+            let tm = self.ivars().tab_manager.borrow();
+            if let Some(t) = tm.get(idx) {
                 *t.url.borrow_mut() = Some(path.clone());
                 t.is_dirty.set(false);
             }
         }
         if let Some(pb) = self.ivars().path_bar.get() {
-            if idx == self.ivars().active_index.get() {
+            if idx == self.ivars().tab_manager.borrow().active_index() {
                 pb.update(Some(path.as_path()));
             }
         }
@@ -688,9 +653,8 @@ impl AppDelegate {
         } else {
             min_padding
         };
-        let idx = self.ivars().active_index.get();
-        let tabs = self.ivars().tabs.borrow();
-        if let Some(t) = tabs.get(idx) {
+        let tm = self.ivars().tab_manager.borrow();
+        if let Some(t) = tm.active() {
             t.text_view
                 .setTextContainerInset(NSSize::new(h_inset, 40.0));
         }
@@ -732,98 +696,84 @@ fn show_save_alert(filename: &str, mtm: MainThreadMarker) -> SaveChoice {
 // Formatting helpers
 // ---------------------------------------------------------------------------
 
-/// Replace the current NSTextView selection with `prefix + selected + suffix`.
+/// Toggle an inline marker around the current selection.
 ///
-/// Uses `insertText:replacementRange:` so the edit is registered with undo.
-fn wrap_selection(tv: &NSTextView, prefix: &str, suffix: &str) {
+/// Delegates to the pure `compute_inline_toggle()` for the string logic,
+/// then applies the result to the NSTextView.
+fn toggle_inline_wrap(tv: &NSTextView, marker: &str) {
     let range: NSRange = unsafe { msg_send![tv, selectedRange] };
     let Some(storage) = (unsafe { tv.textStorage() }) else {
         return;
     };
-    let selected: Retained<NSString> = storage.string().substringWithRange(range);
-    let combined = format!("{}{}{}", prefix, selected, suffix);
-    let ns = NSString::from_str(&combined);
+    let full_str = storage.string();
+    let full_len = full_str.length();
+
+    let selected = full_str.substringWithRange(range).to_string();
+
+    // Grab a few characters on each side for marker detection.
+    const MAX_MARKERS: usize = 6;
+    let before_start = range.location.saturating_sub(MAX_MARKERS);
+    let after_end = (range.location + range.length + MAX_MARKERS).min(full_len);
+
+    let before = full_str
+        .substringWithRange(NSRange { location: before_start, length: range.location - before_start })
+        .to_string();
+    let after = full_str
+        .substringWithRange(NSRange {
+            location: range.location + range.length,
+            length: after_end - (range.location + range.length),
+        })
+        .to_string();
+
+    let result = mdit::editor::formatting::compute_inline_toggle(&selected, &before, &after, marker);
+
+    let replace_range = NSRange {
+        location: range.location - result.consumed_before,
+        length: result.consumed_before + range.length + result.consumed_after,
+    };
+    let ns = NSString::from_str(&result.replacement);
+    unsafe { msg_send![tv, insertText: &*ns, replacementRange: replace_range] }
+}
+
+/// Replace the current NSTextView selection with `prefix + selected + suffix`.
+fn insert_link_wrap(tv: &NSTextView, prefix: &str, suffix: &str) {
+    let range: NSRange = unsafe { msg_send![tv, selectedRange] };
+    let Some(storage) = (unsafe { tv.textStorage() }) else {
+        return;
+    };
+    let selected = storage.string().substringWithRange(range).to_string();
+    let text = mdit::editor::formatting::compute_link_wrap(&selected, prefix, suffix);
+    let ns = NSString::from_str(&text);
     unsafe { msg_send![tv, insertText: &*ns, replacementRange: range] }
 }
 
-/// Insert `prefix` at the beginning of the line that contains the caret.
+/// Apply a block-level format to the line containing the caret.
 ///
-/// Works on the NSString level so it correctly handles multi-byte content.
-fn prepend_line(tv: &NSTextView, prefix: &str) {
+/// Uses the pure `set_block_format()` under the hood: same prefix toggles
+/// off, different prefix switches, empty prefix strips (Normal).
+fn apply_block_format(tv: &NSTextView, desired_prefix: &str) {
     let caret: NSRange = unsafe { msg_send![tv, selectedRange] };
     let Some(storage) = (unsafe { tv.textStorage() }) else {
         return;
     };
     let ns_str = storage.string();
-    // NSString.lineRangeForRange: gives us the UTF-16 range of the whole line.
-    let point = NSRange {
-        location: caret.location,
-        length: 0,
-    };
-    let line_range: NSRange = ns_str.lineRangeForRange(point);
-    let insert_at = NSRange {
-        location: line_range.location,
-        length: 0,
-    };
-    let ns = NSString::from_str(prefix);
-    unsafe { msg_send![tv, insertText: &*ns, replacementRange: insert_at] }
-}
-
-/// Strip a leading heading/blockquote prefix (`# `, `## `, `### `, `> `)
-/// from the line containing the caret (applyNormal:).
-fn strip_line_prefix(tv: &NSTextView) {
-    let caret: NSRange = unsafe { msg_send![tv, selectedRange] };
-    let Some(storage) = (unsafe { tv.textStorage() }) else {
-        return;
-    };
-    let ns_str = storage.string();
-    let point = NSRange {
-        location: caret.location,
-        length: 0,
-    };
+    let point = NSRange { location: caret.location, length: 0 };
     let line_range: NSRange = ns_str.lineRangeForRange(point);
     let line_text = ns_str.substringWithRange(line_range).to_string();
 
-    // Longest match first so "### " is caught before "# ".
-    let prefix_len: usize = if line_text.starts_with("### ") {
-        4
-    } else if line_text.starts_with("## ") {
-        3
-    } else if line_text.starts_with("# ") {
-        2
-    } else if line_text.starts_with("> ") {
-        2
-    } else {
-        0
-    };
-
-    if prefix_len == 0 {
-        return;
-    }
-
-    // All prefix characters are ASCII (1 UTF-16 unit each).
-    let remove_range = NSRange {
-        location: line_range.location,
-        length: prefix_len,
-    };
-    let empty = NSString::from_str("");
-    unsafe { msg_send![tv, insertText: &*empty, replacementRange: remove_range] }
+    let new_line = mdit::editor::formatting::set_block_format(&line_text, desired_prefix);
+    let ns = NSString::from_str(&new_line);
+    unsafe { msg_send![tv, insertText: &*ns, replacementRange: line_range] }
 }
 
 /// Wrap the current selection in a fenced code block.
-/// If nothing is selected, insert an empty fence and position the cursor inside.
 fn insert_code_block(tv: &NSTextView) {
     let range: NSRange = unsafe { msg_send![tv, selectedRange] };
     let Some(storage) = (unsafe { tv.textStorage() }) else {
         return;
     };
     let selected = storage.string().substringWithRange(range).to_string();
-    let fence = "```";
-    let text = if selected.is_empty() {
-        format!("{}\n\n{}", fence, fence)
-    } else {
-        format!("{}\n{}\n{}", fence, selected, fence)
-    };
+    let text = mdit::editor::formatting::compute_code_block_wrap(&selected);
     let ns = NSString::from_str(&text);
     unsafe { msg_send![tv, insertText: &*ns, replacementRange: range] }
 }

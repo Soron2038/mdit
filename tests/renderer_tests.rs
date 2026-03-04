@@ -299,3 +299,18 @@ fn code_block_code_content_captured() {
         assert_eq!(code, "let x = 1;", "code content should be extracted without fences");
     }
 }
+
+#[test]
+fn nested_bold_italic_gets_both_attributes() {
+    let text = "_**hello**_";
+    let spans = parse(text);
+    let runs = compute_attribute_runs(text, &spans, None);
+    let bold_italic = runs.iter().find(|r| {
+        r.attrs.contains(&TextAttribute::Bold) && r.attrs.contains(&TextAttribute::Italic)
+    });
+    assert!(
+        bold_italic.is_some(),
+        "expected a run with both Bold and Italic; runs: {:?}",
+        runs
+    );
+}
