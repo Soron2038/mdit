@@ -11,6 +11,23 @@ pub struct AttributeRun {
     pub attrs: AttributeSet,
 }
 
+/// Metadata for a single table, used for column width equalization.
+#[derive(Debug, Clone)]
+pub struct TableInfo {
+    /// For each data row (header + body): sorted byte positions of structural pipes.
+    pub row_pipes: Vec<Vec<usize>>,
+    /// Whether the cursor is currently inside this table.
+    pub cursor_inside: bool,
+    /// Byte range of the entire table (start, end) from the AST span.
+    pub source_range: (usize, usize),
+}
+
+/// Combined output of `compute_attribute_runs`.
+pub struct RenderOutput {
+    pub runs: Vec<AttributeRun>,
+    pub table_infos: Vec<TableInfo>,
+}
+
 // ---------------------------------------------------------------------------
 // Main entry point
 // ---------------------------------------------------------------------------
@@ -23,12 +40,16 @@ pub fn compute_attribute_runs(
     text: &str,
     spans: &[MarkdownSpan],
     cursor_pos: Option<usize>,
-) -> Vec<AttributeRun> {
+) -> RenderOutput {
     let mut runs = Vec::new();
+    let mut table_infos = Vec::new();
     for span in spans {
-        collect_runs(text, span, cursor_pos, &[], &mut runs);
+        collect_runs(text, span, cursor_pos, &[], &mut runs, &mut table_infos);
     }
-    fill_gaps(text.len(), runs)
+    RenderOutput {
+        runs: fill_gaps(text.len(), runs),
+        table_infos,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -58,6 +79,7 @@ fn collect_runs(
     cursor_pos: Option<usize>,
     inherited: &[TextAttribute],
     runs: &mut Vec<AttributeRun>,
+    table_infos: &mut Vec<TableInfo>,
 ) {
     let (start, end) = span.source_range;
     // Guard against degenerate ranges.
@@ -70,10 +92,10 @@ fn collect_runs(
 
     match &span.kind {
         NodeKind::Strong => {
-            collect_strong(text, span, cursor_pos, inherited, &syn, runs);
+            collect_strong(text, span, cursor_pos, inherited, &syn, runs, table_infos);
         }
         NodeKind::Emph => {
-            collect_emph(text, span, cursor_pos, inherited, &syn, runs);
+            collect_emph(text, span, cursor_pos, inherited, &syn, runs, table_infos);
         }
         NodeKind::Code => {
             collect_code(start, end, &syn, runs);
@@ -82,10 +104,10 @@ fn collect_runs(
             collect_heading(text, start, end, *level, &syn, runs);
         }
         NodeKind::Strikethrough => {
-            collect_strikethrough(text, span, cursor_pos, inherited, &syn, runs);
+            collect_strikethrough(text, span, cursor_pos, inherited, &syn, runs, table_infos);
         }
         NodeKind::Link { .. } => {
-            collect_link(text, span, cursor_pos, inherited, &syn, runs);
+            collect_link(text, span, cursor_pos, inherited, &syn, runs, table_infos);
         }
         NodeKind::CodeBlock { .. } => {
             collect_code_block(text, span, cursor_pos, runs);
@@ -113,18 +135,18 @@ fn collect_runs(
         }
         NodeKind::List => {
             for child in &span.children {
-                collect_runs(text, child, cursor_pos, inherited, runs);
+                collect_runs(text, child, cursor_pos, inherited, runs, table_infos);
             }
         }
         NodeKind::Item => {
-            collect_item(text, span, cursor_pos, inherited, runs);
+            collect_item(text, span, cursor_pos, inherited, runs, table_infos);
         }
         NodeKind::Table => {
-            collect_table(text, span, cursor_pos, runs);
+            collect_table(text, span, cursor_pos, runs, table_infos);
         }
         NodeKind::TableRow { .. } | NodeKind::TableCell => {
             for child in &span.children {
-                collect_runs(text, child, cursor_pos, inherited, runs);
+                collect_runs(text, child, cursor_pos, inherited, runs, table_infos);
             }
         }
         NodeKind::Footnote => {
@@ -143,7 +165,7 @@ fn collect_runs(
                 }
             } else {
                 for child in &span.children {
-                    collect_runs(text, child, cursor_pos, inherited, runs);
+                    collect_runs(text, child, cursor_pos, inherited, runs, table_infos);
                 }
             }
         }
@@ -162,6 +184,7 @@ fn collect_strong(
     inherited: &[TextAttribute],
     syn: &AttributeSet,
     runs: &mut Vec<AttributeRun>,
+    table_infos: &mut Vec<TableInfo>,
 ) {
     let (start, end) = (span.source_range.0, span.source_range.1.min(text.len()));
     let m = 2.min(end - start);
@@ -177,7 +200,7 @@ fn collect_strong(
         }
     } else {
         for child in &span.children {
-            collect_runs(text, child, cursor_pos, &child_attrs, runs);
+            collect_runs(text, child, cursor_pos, &child_attrs, runs, table_infos);
         }
     }
     runs.push(AttributeRun { range: (end - m, end), attrs: syn.clone() });
@@ -191,6 +214,7 @@ fn collect_emph(
     inherited: &[TextAttribute],
     syn: &AttributeSet,
     runs: &mut Vec<AttributeRun>,
+    table_infos: &mut Vec<TableInfo>,
 ) {
     let (start, end) = (span.source_range.0, span.source_range.1.min(text.len()));
     runs.push(AttributeRun { range: (start, start + 1), attrs: syn.clone() });
@@ -205,7 +229,7 @@ fn collect_emph(
         }
     } else {
         for child in &span.children {
-            collect_runs(text, child, cursor_pos, &child_attrs, runs);
+            collect_runs(text, child, cursor_pos, &child_attrs, runs, table_infos);
         }
     }
     runs.push(AttributeRun { range: (end - 1, end), attrs: syn.clone() });
@@ -281,6 +305,7 @@ fn collect_strikethrough(
     inherited: &[TextAttribute],
     syn: &AttributeSet,
     runs: &mut Vec<AttributeRun>,
+    table_infos: &mut Vec<TableInfo>,
 ) {
     let (start, end) = (span.source_range.0, span.source_range.1.min(text.len()));
     let m = 2.min(end - start);
@@ -297,7 +322,7 @@ fn collect_strikethrough(
         }
     } else {
         for child in &span.children {
-            collect_runs(text, child, cursor_pos, &child_attrs, runs);
+            collect_runs(text, child, cursor_pos, &child_attrs, runs, table_infos);
         }
     }
     runs.push(AttributeRun { range: (end - m, end), attrs: syn.clone() });
@@ -311,6 +336,7 @@ fn collect_link(
     inherited: &[TextAttribute],
     syn: &AttributeSet,
     runs: &mut Vec<AttributeRun>,
+    table_infos: &mut Vec<TableInfo>,
 ) {
     let (start, end) = (span.source_range.0, span.source_range.1.min(text.len()));
 
@@ -341,7 +367,7 @@ fn collect_link(
         }
     } else {
         for child in &span.children {
-            collect_runs(text, child, cursor_pos, &child_attrs, runs);
+            collect_runs(text, child, cursor_pos, &child_attrs, runs, table_infos);
         }
     }
 
@@ -404,6 +430,7 @@ fn collect_item(
     cursor_pos: Option<usize>,
     inherited: &[TextAttribute],
     runs: &mut Vec<AttributeRun>,
+    table_infos: &mut Vec<TableInfo>,
 ) {
     let (start, end) = (span.source_range.0, span.source_range.1.min(text.len()));
     let marker_end = span
@@ -419,7 +446,7 @@ fn collect_item(
         });
     }
     for child in &span.children {
-        collect_runs(text, child, cursor_pos, inherited, runs);
+        collect_runs(text, child, cursor_pos, inherited, runs, table_infos);
     }
 }
 
@@ -429,6 +456,7 @@ fn collect_table(
     span: &MarkdownSpan,
     cursor_pos: Option<usize>,
     runs: &mut Vec<AttributeRun>,
+    table_infos: &mut Vec<TableInfo>,
 ) {
     let cursor_in = cursor_in_span(cursor_pos, span.source_range);
     let syn = syntax_attrs(cursor_pos, span.source_range);
@@ -464,6 +492,8 @@ fn collect_table(
 
     // ── Process each data row ────────────────────────────────────────────
     let mut body_row_count: usize = 0;
+    let mut all_row_pipes: Vec<Vec<usize>> = Vec::new();
+
     for row in &span.children {
         let is_body = matches!(&row.kind, NodeKind::TableRow { header: false });
         if is_body {
@@ -486,6 +516,7 @@ fn collect_table(
         // Scan for pipe characters in the row.
         let row_end = row.source_range.1.min(text.len());
         let mut is_first_pipe = true;
+        let mut row_pipe_positions: Vec<usize> = Vec::new();
         for pos in row.source_range.0..row_end {
             if text.as_bytes().get(pos) != Some(&b'|') {
                 continue;
@@ -494,6 +525,7 @@ fn collect_table(
             if in_cell {
                 continue;
             }
+            row_pipe_positions.push(pos);
             let mut pipe_attrs = syn.clone();
             if !cursor_in {
                 pipe_attrs = pipe_attrs.with(TextAttribute::TablePipe);
@@ -504,6 +536,7 @@ fn collect_table(
             runs.push(AttributeRun { range: (pos, pos + 1), attrs: pipe_attrs });
             is_first_pipe = false;
         }
+        all_row_pipes.push(row_pipe_positions);
 
         // Process cell children for inline formatting.
         for cell in &row.children {
@@ -511,10 +544,16 @@ fn collect_table(
                 continue;
             }
             for child in &cell.children {
-                collect_runs(text, child, cursor_pos, &[], runs);
+                collect_runs(text, child, cursor_pos, &[], runs, table_infos);
             }
         }
     }
+
+    table_infos.push(TableInfo {
+        row_pipes: all_row_pipes,
+        cursor_inside: cursor_in,
+        source_range: (span.source_range.0, span.source_range.1.min(text.len())),
+    });
 }
 
 /// Fill gaps between runs with plain (unstyled) runs.

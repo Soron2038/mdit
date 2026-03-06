@@ -38,6 +38,8 @@ pub struct MditEditorDelegateIvars {
     table_h_sep_positions: RefCell<Vec<usize>>,
     /// UTF-16 offsets of table pipe characters for vertical grid lines.
     table_pipe_sep_positions: RefCell<Vec<usize>>,
+    /// Per-table (start_utf16, end_utf16) for drawing rounded borders.
+    table_bounds: RefCell<Vec<(usize, usize)>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -80,18 +82,21 @@ define_class!(
 
             // ── Apply visual attributes ───────────────────────────────────
             let cursor_pos = self.ivars().cursor_pos.get();
-            let runs = {
+            let output = {
                 let spans = self.ivars().spans.borrow();
                 compute_attribute_runs(&text, &spans, cursor_pos)
             };
             let scheme = self.ivars().scheme.get();
             self.ivars().applying.set(true);
-            let positions = apply_attribute_runs(text_storage, &text, &runs, &scheme);
+            let positions = apply_attribute_runs(
+                text_storage, &text, &output.runs, &output.table_infos, &scheme,
+            );
             self.ivars().applying.set(false);
             *self.ivars().heading_sep_positions.borrow_mut() = positions.heading_seps;
             *self.ivars().thematic_break_positions.borrow_mut() = positions.thematic_breaks;
             *self.ivars().table_h_sep_positions.borrow_mut() = positions.table_h_seps;
             *self.ivars().table_pipe_sep_positions.borrow_mut() = positions.table_pipe_seps;
+            *self.ivars().table_bounds.borrow_mut() = positions.table_bounds;
             let infos = {
                 let spans_ref = self.ivars().spans.borrow();
                 collect_code_block_infos(&spans_ref, &text)
@@ -118,6 +123,7 @@ impl MditEditorDelegate {
             code_block_infos: RefCell::new(Vec::new()),
             table_h_sep_positions: RefCell::new(Vec::new()),
             table_pipe_sep_positions: RefCell::new(Vec::new()),
+            table_bounds: RefCell::new(Vec::new()),
         });
         unsafe { msg_send![super(this), init] }
     }
@@ -158,18 +164,21 @@ impl MditEditorDelegate {
             return;
         }
         let cursor_pos = self.ivars().cursor_pos.get();
-        let runs = {
+        let output = {
             let spans = self.ivars().spans.borrow();
             compute_attribute_runs(&text, &spans, cursor_pos)
         };
         let scheme = self.ivars().scheme.get();
         self.ivars().applying.set(true);
-        let positions = apply_attribute_runs(storage, &text, &runs, &scheme);
+        let positions = apply_attribute_runs(
+            storage, &text, &output.runs, &output.table_infos, &scheme,
+        );
         self.ivars().applying.set(false);
         *self.ivars().heading_sep_positions.borrow_mut() = positions.heading_seps;
         *self.ivars().thematic_break_positions.borrow_mut() = positions.thematic_breaks;
         *self.ivars().table_h_sep_positions.borrow_mut() = positions.table_h_seps;
         *self.ivars().table_pipe_sep_positions.borrow_mut() = positions.table_pipe_seps;
+        *self.ivars().table_bounds.borrow_mut() = positions.table_bounds;
         let infos = {
             let spans_ref = self.ivars().spans.borrow();
             collect_code_block_infos(&spans_ref, &text)
@@ -205,5 +214,10 @@ impl MditEditorDelegate {
     /// Used by `MditTextView` to draw vertical separator lines.
     pub fn table_pipe_sep_positions(&self) -> Vec<usize> {
         self.ivars().table_pipe_sep_positions.borrow().clone()
+    }
+
+    /// Returns per-table (start_utf16, end_utf16) bounding positions.
+    pub fn table_bounds(&self) -> Vec<(usize, usize)> {
+        self.ivars().table_bounds.borrow().clone()
     }
 }

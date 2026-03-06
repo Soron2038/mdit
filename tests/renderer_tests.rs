@@ -6,7 +6,7 @@ use mdit::markdown::parser::parse;
 fn bold_span_gets_bold_attribute() {
     let text = "hello **world** end";
     let spans = parse(text);
-    let runs = compute_attribute_runs(text, &spans, None);
+    let runs = compute_attribute_runs(text, &spans, None).runs;
     let bold_run = runs.iter().find(|r| r.attrs.contains(&TextAttribute::Bold));
     assert!(bold_run.is_some(), "expected a Bold attribute run");
 }
@@ -16,7 +16,7 @@ fn syntax_markers_hidden_when_cursor_outside() {
     let text = "**bold**";
     let spans = parse(text);
     // Cursor at position 50 → outside the span
-    let runs = compute_attribute_runs(text, &spans, Some(50));
+    let runs = compute_attribute_runs(text, &spans, Some(50)).runs;
     let hidden = runs
         .iter()
         .filter(|r| r.attrs.contains(&TextAttribute::Hidden))
@@ -29,7 +29,7 @@ fn syntax_markers_visible_when_cursor_inside() {
     let text = "**bold**";
     let spans = parse(text);
     // Cursor at position 3 → inside **bold**
-    let runs = compute_attribute_runs(text, &spans, Some(3));
+    let runs = compute_attribute_runs(text, &spans, Some(3)).runs;
     let hidden = runs
         .iter()
         .filter(|r| r.attrs.contains(&TextAttribute::Hidden))
@@ -41,7 +41,7 @@ fn syntax_markers_visible_when_cursor_inside() {
 fn italic_span_gets_italic_attribute() {
     let text = "*italic*";
     let spans = parse(text);
-    let runs = compute_attribute_runs(text, &spans, None);
+    let runs = compute_attribute_runs(text, &spans, None).runs;
     assert!(
         runs.iter().any(|r| r.attrs.contains(&TextAttribute::Italic)),
         "expected an Italic attribute run"
@@ -52,7 +52,7 @@ fn italic_span_gets_italic_attribute() {
 fn inline_code_gets_monospace() {
     let text = "`code`";
     let spans = parse(text);
-    let runs = compute_attribute_runs(text, &spans, None);
+    let runs = compute_attribute_runs(text, &spans, None).runs;
     assert!(
         runs.iter()
             .any(|r| r.attrs.contains(&TextAttribute::Monospace)),
@@ -64,7 +64,7 @@ fn inline_code_gets_monospace() {
 fn heading_gets_large_font() {
     let text = "# Title";
     let spans = parse(text);
-    let runs = compute_attribute_runs(text, &spans, None);
+    let runs = compute_attribute_runs(text, &spans, None).runs;
     assert!(
         runs.iter().any(|r| r.attrs.font_size() > 20.0),
         "expected large font for H1"
@@ -75,7 +75,7 @@ fn heading_gets_large_font() {
 fn list_item_marker_styled() {
     let text = "- Item one\n- Item two";
     let spans = parse(text);
-    let runs = compute_attribute_runs(text, &spans, None);
+    let runs = compute_attribute_runs(text, &spans, None).runs;
     let marker = runs.iter().find(|r| r.attrs.contains(&TextAttribute::ListMarker));
     assert!(marker.is_some(), "expected a ListMarker attribute run for list item");
 }
@@ -84,7 +84,7 @@ fn list_item_marker_styled() {
 fn blockquote_gets_bar_attribute() {
     let text = "> quoted text";
     let spans = parse(text);
-    let runs = compute_attribute_runs(text, &spans, None);
+    let runs = compute_attribute_runs(text, &spans, None).runs;
     assert!(
         runs.iter().any(|r| r.attrs.contains(&TextAttribute::BlockquoteBar)),
         "expected BlockquoteBar for blockquote"
@@ -95,7 +95,7 @@ fn blockquote_gets_bar_attribute() {
 fn table_no_longer_monospace() {
     let text = "| A | B |\n|---|---|\n| 1 | 2 |";
     let spans = parse(text);
-    let runs = compute_attribute_runs(text, &spans, None);
+    let runs = compute_attribute_runs(text, &spans, None).runs;
     let has_monospace = runs.iter().any(|r| r.attrs.contains(&TextAttribute::Monospace));
     assert!(!has_monospace, "tables should not use Monospace styling");
 }
@@ -105,7 +105,7 @@ fn h1_prefix_hidden_outside_cursor() {
     let text = "# Heading";
     let spans = parse(text);
     // Cursor outside
-    let runs = compute_attribute_runs(text, &spans, Some(50));
+    let runs = compute_attribute_runs(text, &spans, Some(50)).runs;
     let hidden = runs
         .iter()
         .filter(|r| r.attrs.contains(&TextAttribute::Hidden))
@@ -123,7 +123,7 @@ fn setext_h2_does_not_hide_content_prefix() {
     // heading font size and must NOT be hidden — there is no '#' prefix to hide.
     let text = "kursiv\n-\n";
     let spans = parse(text);
-    let runs = compute_attribute_runs(text, &spans, None);
+    let runs = compute_attribute_runs(text, &spans, None).runs;
 
     let content_run = runs.iter().find(|r| r.range == (0, 6));
     assert!(content_run.is_some(),
@@ -141,7 +141,7 @@ fn setext_h2_underline_is_syntax_marker() {
     // With cursor=None, syntax markers are hidden.
     let text = "kursiv\n-\n";
     let spans = parse(text);
-    let runs = compute_attribute_runs(text, &spans, None);
+    let runs = compute_attribute_runs(text, &spans, None).runs;
 
     let underline_run = runs.iter()
         .find(|r| r.range.0 == 6)
@@ -155,7 +155,7 @@ fn atx_heading_prefix_still_hidden() {
     // Regression: ATX headings must still hide the '## ' prefix (3 bytes for H2).
     let text = "## Hello\n";
     let spans = parse(text);
-    let runs = compute_attribute_runs(text, &spans, None);
+    let runs = compute_attribute_runs(text, &spans, None).runs;
 
     let prefix_run = runs.iter().find(|r| r.range == (0, 3));
     assert!(prefix_run.is_some(),
@@ -171,7 +171,7 @@ fn atx_h1_content_gets_heading_separator() {
     // by the renderer; the content-before filter lives in apply_attribute_runs.)
     let text = "# Title\n";
     let spans = parse(text);
-    let runs = compute_attribute_runs(text, &spans, None);
+    let runs = compute_attribute_runs(text, &spans, None).runs;
     let sep_run = runs.iter().find(|r| r.attrs.contains(&TextAttribute::HeadingSeparator));
     assert!(sep_run.is_some(), "expected HeadingSeparator on ATX H1 content run");
 }
@@ -181,7 +181,7 @@ fn setext_h1_content_gets_heading_separator() {
     // HeadingSeparator must be present on the content run of a setext H1.
     let text = "Title\n=====\n";
     let spans = parse(text);
-    let runs = compute_attribute_runs(text, &spans, None);
+    let runs = compute_attribute_runs(text, &spans, None).runs;
     let sep_run = runs.iter().find(|r| r.attrs.contains(&TextAttribute::HeadingSeparator));
     assert!(sep_run.is_some(), "expected HeadingSeparator on setext H1 content run");
 }
@@ -191,7 +191,7 @@ fn h3_content_does_not_get_heading_separator() {
     // HeadingSeparator must NOT appear for H3 or below.
     let text = "### Section\n";
     let spans = parse(text);
-    let runs = compute_attribute_runs(text, &spans, None);
+    let runs = compute_attribute_runs(text, &spans, None).runs;
     let sep_run = runs.iter().find(|r| r.attrs.contains(&TextAttribute::HeadingSeparator));
     assert!(sep_run.is_none(), "HeadingSeparator must not appear on H3");
 }
@@ -201,7 +201,7 @@ fn code_block_fences_hidden_without_cursor() {
     // "```rust\n" = bytes 0..8, "let x = 1;\n" = bytes 8..19, "```\n" = bytes 19..23
     let text = "```rust\nlet x = 1;\n```\n";
     let spans = parse(text);
-    let runs = compute_attribute_runs(text, &spans, None);
+    let runs = compute_attribute_runs(text, &spans, None).runs;
 
     let opening = runs.iter().find(|r| r.range.0 == 0)
         .expect("no run starting at byte 0");
@@ -226,7 +226,7 @@ fn opening_fence_visible_when_cursor_on_it() {
     let text = "```rust\nlet x = 1;\n```\n";
     let spans = parse(text);
     // cursor at byte 2 — inside the opening fence (bytes 0..8)
-    let runs = compute_attribute_runs(text, &spans, Some(2));
+    let runs = compute_attribute_runs(text, &spans, Some(2)).runs;
     let opening = runs.iter().find(|r| r.range.0 == 0)
         .expect("no run at byte 0");
     assert!(!opening.attrs.contains(&TextAttribute::Hidden),
@@ -238,7 +238,7 @@ fn closing_fence_visible_when_cursor_on_it() {
     let text = "```rust\nlet x = 1;\n```\n";
     let spans = parse(text);
     // cursor at byte 20 — inside the closing fence (bytes 19..23)
-    let runs = compute_attribute_runs(text, &spans, Some(20));
+    let runs = compute_attribute_runs(text, &spans, Some(20)).runs;
     let closing = runs.iter().find(|r| r.range.0 == 19)
         .expect("no run at byte 19");
     assert!(!closing.attrs.contains(&TextAttribute::Hidden),
@@ -251,7 +251,7 @@ fn cursor_on_content_keeps_fences_hidden() {
     let text = "```rust\nlet x = 1;\n```\n";
     let spans = parse(text);
     // cursor at byte 10 — inside the content "let x = 1;\n" (bytes 8..19)
-    let runs = compute_attribute_runs(text, &spans, Some(10));
+    let runs = compute_attribute_runs(text, &spans, Some(10)).runs;
 
     let opening = runs.iter().find(|r| r.range.0 == 0)
         .expect("no run at byte 0");
@@ -269,7 +269,7 @@ fn empty_body_code_block_no_content_run() {
     // "```\n" = bytes 0..4, no content, "```\n" = bytes 4..8
     let text = "```\n```\n";
     let spans = parse(text);
-    let runs = compute_attribute_runs(text, &spans, None);
+    let runs = compute_attribute_runs(text, &spans, None).runs;
 
     // Both fences must be hidden (no language, fence is still just "```\n").
     let opening = runs.iter().find(|r| r.range.0 == 0)
@@ -302,7 +302,7 @@ fn code_block_code_content_captured() {
 fn nested_bold_italic_gets_both_attributes() {
     let text = "_**hello**_";
     let spans = parse(text);
-    let runs = compute_attribute_runs(text, &spans, None);
+    let runs = compute_attribute_runs(text, &spans, None).runs;
     let bold_italic = runs.iter().find(|r| {
         r.attrs.contains(&TextAttribute::Bold) && r.attrs.contains(&TextAttribute::Italic)
     });
@@ -319,7 +319,7 @@ fn nested_bold_italic_gets_both_attributes() {
 fn table_cell_bold_gets_bold_attribute() {
     let text = "| **bold** | plain |\n|---|---|\n| a | b |";
     let spans = parse(text);
-    let runs = compute_attribute_runs(text, &spans, None);
+    let runs = compute_attribute_runs(text, &spans, None).runs;
     let bold = runs.iter().find(|r| r.attrs.contains(&TextAttribute::Bold));
     assert!(bold.is_some(), "expected Bold attribute in table cell");
 }
@@ -328,7 +328,7 @@ fn table_cell_bold_gets_bold_attribute() {
 fn table_cell_italic_gets_italic_attribute() {
     let text = "| *italic* | plain |\n|---|---|\n| a | b |";
     let spans = parse(text);
-    let runs = compute_attribute_runs(text, &spans, None);
+    let runs = compute_attribute_runs(text, &spans, None).runs;
     assert!(
         runs.iter().any(|r| r.attrs.contains(&TextAttribute::Italic)),
         "expected Italic attribute in table cell"
@@ -341,7 +341,7 @@ fn table_cell_italic_gets_italic_attribute() {
 fn table_pipes_hidden_when_cursor_outside() {
     let text = "| A | B |\n|---|---|\n| 1 | 2 |";
     let spans = parse(text);
-    let runs = compute_attribute_runs(text, &spans, Some(999));
+    let runs = compute_attribute_runs(text, &spans, Some(999)).runs;
     let pipe_runs: Vec<_> = runs
         .iter()
         .filter(|r| r.attrs.contains(&TextAttribute::TablePipe))
@@ -356,7 +356,7 @@ fn table_pipes_hidden_when_cursor_outside() {
 fn table_pipes_visible_when_cursor_inside() {
     let text = "| A | B |\n|---|---|\n| 1 | 2 |";
     let spans = parse(text);
-    let runs = compute_attribute_runs(text, &spans, Some(3));
+    let runs = compute_attribute_runs(text, &spans, Some(3)).runs;
     let has_table_pipe = runs.iter().any(|r| r.attrs.contains(&TextAttribute::TablePipe));
     assert!(!has_table_pipe, "no TablePipe when cursor is inside table");
     let has_hidden = runs.iter().any(|r| {
@@ -369,7 +369,7 @@ fn table_pipes_visible_when_cursor_inside() {
 fn table_separator_row_hidden_when_cursor_outside() {
     let text = "| A | B |\n|---|---|\n| 1 | 2 |";
     let spans = parse(text);
-    let runs = compute_attribute_runs(text, &spans, Some(999));
+    let runs = compute_attribute_runs(text, &spans, Some(999)).runs;
     let sep_run = runs
         .iter()
         .find(|r| r.attrs.contains(&TextAttribute::TableSeparatorLine));
@@ -384,7 +384,7 @@ fn table_separator_row_hidden_when_cursor_outside() {
 fn table_separator_row_visible_when_cursor_inside() {
     let text = "| A | B |\n|---|---|\n| 1 | 2 |";
     let spans = parse(text);
-    let runs = compute_attribute_runs(text, &spans, Some(3));
+    let runs = compute_attribute_runs(text, &spans, Some(3)).runs;
     let has_sep = runs
         .iter()
         .any(|r| r.attrs.contains(&TextAttribute::TableSeparatorLine));
@@ -395,7 +395,7 @@ fn table_separator_row_visible_when_cursor_inside() {
 fn table_multi_body_rows_get_h_separator() {
     let text = "| A |\n|---|\n| 1 |\n| 2 |";
     let spans = parse(text);
-    let runs = compute_attribute_runs(text, &spans, Some(999));
+    let runs = compute_attribute_runs(text, &spans, Some(999)).runs;
     let sep_runs: Vec<_> = runs
         .iter()
         .filter(|r| r.attrs.contains(&TextAttribute::TableSeparatorLine))
@@ -405,5 +405,39 @@ fn table_multi_body_rows_get_h_separator() {
         "expected at least 2 TableSeparatorLine runs (sep row + body boundary); got {}",
         sep_runs.len()
     );
+}
+
+// ── Table column info tests ───────────────────────────────────────────────────
+
+#[test]
+fn table_collects_pipe_positions_per_row() {
+    let text = "| A | B |\n|---|---|\n| 1 | 2 |";
+    let spans = parse(text);
+    let output = compute_attribute_runs(text, &spans, Some(999));
+    assert!(!output.table_infos.is_empty(), "expected at least one TableInfo");
+    let info = &output.table_infos[0];
+    assert_eq!(info.row_pipes.len(), 2, "expected 2 rows (header + 1 body)");
+    assert_eq!(info.row_pipes[0].len(), 3, "expected 3 pipes per row: |A|B|");
+    assert_eq!(info.row_pipes[1].len(), 3, "expected 3 pipes per row: |1|2|");
+    assert!(!info.cursor_inside, "cursor at 999 should be outside table");
+}
+
+#[test]
+fn table_cursor_inside_sets_flag() {
+    let text = "| A | B |\n|---|---|\n| 1 | 2 |";
+    let spans = parse(text);
+    let output = compute_attribute_runs(text, &spans, Some(3));
+    assert!(!output.table_infos.is_empty());
+    assert!(output.table_infos[0].cursor_inside, "cursor at 3 should be inside table");
+}
+
+#[test]
+fn table_info_has_source_range() {
+    let text = "| A | B |\n|---|---|\n| 1 | 2 |";
+    let spans = parse(text);
+    let output = compute_attribute_runs(text, &spans, Some(999));
+    assert!(!output.table_infos.is_empty());
+    let info = &output.table_infos[0];
+    assert_eq!(info.source_range, (0, text.len()), "table source_range should span entire table");
 }
 

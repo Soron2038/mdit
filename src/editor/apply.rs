@@ -4,15 +4,16 @@
 //! This is the bridge between the platform-agnostic renderer and AppKit.
 
 use objc2::rc::Retained;
+use objc2::msg_send;
 use objc2_app_kit::{
     NSBackgroundColorAttributeName, NSColor, NSFont, NSFontAttributeName,
     NSFontDescriptorSymbolicTraits, NSFontWeightBold, NSFontWeightRegular,
-    NSForegroundColorAttributeName, NSMutableParagraphStyle, NSParagraphStyleAttributeName,
-    NSStrikethroughStyleAttributeName, NSTextStorage,
+    NSForegroundColorAttributeName, NSKernAttributeName, NSMutableParagraphStyle,
+    NSParagraphStyleAttributeName, NSStrikethroughStyleAttributeName, NSTextStorage,
 };
-use objc2_foundation::{NSNumber, NSRange};
+use objc2_foundation::{NSNumber, NSRange, NSSize};
 
-use crate::editor::renderer::AttributeRun;
+use crate::editor::renderer::{AttributeRun, TableInfo};
 use crate::markdown::attributes::{AttributeSet, TextAttribute};
 use crate::markdown::parser::{MarkdownSpan, NodeKind};
 use crate::ui::appearance::ColorScheme;
@@ -71,6 +72,8 @@ pub struct LayoutPositions {
     pub table_h_seps: Vec<usize>,
     /// UTF-16 offsets of table pipe characters (vertical separator lines).
     pub table_pipe_seps: Vec<usize>,
+    /// Per-table bounding positions: (start_utf16, end_utf16).
+    pub table_bounds: Vec<(usize, usize)>,
 }
 
 // ---------------------------------------------------------------------------
@@ -89,6 +92,7 @@ pub fn apply_attribute_runs(
     storage: &NSTextStorage,
     text: &str,
     runs: &[AttributeRun],
+    table_infos: &[TableInfo],
     scheme: &ColorScheme,
 ) -> LayoutPositions {
     let text_len_u16 = text.encode_utf16().count();
@@ -98,6 +102,7 @@ pub fn apply_attribute_runs(
             thematic_breaks: Vec::new(),
             table_h_seps: Vec::new(),
             table_pipe_seps: Vec::new(),
+            table_bounds: Vec::new(),
         };
     }
 
@@ -128,6 +133,7 @@ pub fn apply_attribute_runs(
         // Clear attributes that only apply to specific spans.
         storage.removeAttribute_range(NSBackgroundColorAttributeName, full_range);
         storage.removeAttribute_range(NSStrikethroughStyleAttributeName, full_range);
+        storage.removeAttribute_range(NSKernAttributeName, full_range);
     }
 
     // ── Per-run overrides ─────────────────────────────────────────────────
@@ -176,11 +182,23 @@ pub fn apply_attribute_runs(
         }
     }
 
+    // ── Equalize table column widths + collect table bounds ────────────────
+    let mut table_bounds: Vec<(usize, usize)> = Vec::new();
+    for table_info in table_infos {
+        if !table_info.cursor_inside {
+            equalize_table_columns(storage, text, &table_info.row_pipes);
+        }
+        let start_u16 = byte_to_utf16(text, table_info.source_range.0);
+        let end_u16 = byte_to_utf16(text, table_info.source_range.1);
+        table_bounds.push((start_u16, end_u16));
+    }
+
     LayoutPositions {
         heading_seps: heading_sep_positions,
         thematic_breaks: thematic_break_positions,
         table_h_seps: table_h_sep_positions,
         table_pipe_seps: table_pipe_sep_positions,
+        table_bounds,
     }
 }
 
@@ -320,6 +338,107 @@ fn build_font(attrs: &AttributeSet) -> Retained<NSFont> {
     }
 
     unsafe { NSFont::systemFontOfSize_weight(size, NSFontWeightRegular) }
+}
+
+// ---------------------------------------------------------------------------
+// Table column equalization
+// ---------------------------------------------------------------------------
+
+/// Measure cell widths and add kern spacing so that all columns align.
+///
+/// For each pair of adjacent pipes in a row, the content between them forms
+/// a column cell.  We measure every cell's rendered width (fonts are already
+/// applied), find the maximum per column, and add `NSKernAttributeName` to
+/// the last character before each trailing pipe to pad shorter cells.
+fn equalize_table_columns(
+    storage: &NSTextStorage,
+    text: &str,
+    row_pipes: &[Vec<usize>],
+) {
+    if row_pipes.is_empty() {
+        return;
+    }
+
+    // Determine the number of columns (= pipes_per_row - 1).
+    let num_cols = row_pipes.iter().map(|rp| rp.len().saturating_sub(1)).min().unwrap_or(0);
+    if num_cols == 0 {
+        return;
+    }
+
+    // ── Pass 1: Measure cell widths ──────────────────────────────────────
+    // widths[row][col] = rendered width in points
+    let mut widths: Vec<Vec<f64>> = Vec::with_capacity(row_pipes.len());
+    for rp in row_pipes {
+        let mut row_widths = Vec::with_capacity(num_cols);
+        for c in 0..num_cols {
+            if c + 1 >= rp.len() {
+                row_widths.push(0.0);
+                continue;
+            }
+            // Content between pipe[c]+1 and pipe[c+1] (exclusive of the pipes).
+            let byte_start = rp[c] + 1;
+            let byte_end = rp[c + 1];
+            let start_u16 = byte_to_utf16(text, byte_start);
+            let end_u16 = byte_to_utf16(text, byte_end);
+            if start_u16 >= end_u16 {
+                row_widths.push(0.0);
+                continue;
+            }
+            let range = NSRange { location: start_u16, length: end_u16 - start_u16 };
+            let width: f64 = unsafe {
+                let substr = storage.attributedSubstringFromRange(range);
+                let size: NSSize = msg_send![&*substr, size];
+                size.width
+            };
+            row_widths.push(width);
+        }
+        widths.push(row_widths);
+    }
+
+    // ── Pass 2: Compute max width per column ─────────────────────────────
+    let mut max_widths = vec![0.0f64; num_cols];
+    for row_widths in &widths {
+        for (c, &w) in row_widths.iter().enumerate() {
+            if w > max_widths[c] {
+                max_widths[c] = w;
+            }
+        }
+    }
+
+    // ── Pass 3: Apply kern padding ───────────────────────────────────────
+    for (r, rp) in row_pipes.iter().enumerate() {
+        for c in 0..num_cols {
+            if c + 1 >= rp.len() {
+                continue;
+            }
+            let padding = max_widths[c] - widths[r][c];
+            if padding <= 0.5 {
+                continue; // Skip negligible differences.
+            }
+            // Find the last character before the trailing pipe.
+            let pipe_byte = rp[c + 1];
+            let before_pipe = &text[..pipe_byte];
+            if let Some(last_char) = before_pipe.chars().next_back() {
+                let kern_byte_start = pipe_byte - last_char.len_utf8();
+                let kern_u16_start = byte_to_utf16(text, kern_byte_start);
+                let kern_u16_end = byte_to_utf16(text, pipe_byte);
+                if kern_u16_start < kern_u16_end {
+                    let kern_range = NSRange {
+                        location: kern_u16_start,
+                        length: kern_u16_end - kern_u16_start,
+                    };
+                    let kern_value = NSNumber::numberWithFloat(padding as f32);
+                    unsafe {
+                        storage.addAttribute_value_range(
+                            NSKernAttributeName,
+                            kern_value.as_ref(),
+                            kern_range,
+                        );
+                    }
+                }
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
