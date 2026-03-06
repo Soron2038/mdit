@@ -179,6 +179,15 @@ pub fn apply_attribute_runs(
         }
         if run.attrs.contains(&TextAttribute::TablePipe) {
             table_pipe_sep_positions.push(start_u16);
+            // Add 10px left padding: kern on the pipe pushes the next character right.
+            let kern_value = NSNumber::numberWithFloat(10.0);
+            unsafe {
+                storage.addAttribute_value_range(
+                    NSKernAttributeName,
+                    kern_value.as_ref(),
+                    range,
+                );
+            }
         }
     }
 
@@ -403,6 +412,11 @@ fn equalize_table_columns(
                 max_widths[c] = w;
             }
         }
+    }
+
+    // Add 20px per column for cell padding (10px left from pipe kern + 10px right).
+    for w in &mut max_widths {
+        *w += 20.0;
     }
 
     // ── Pass 3: Apply kern padding ───────────────────────────────────────
