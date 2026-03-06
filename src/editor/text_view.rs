@@ -55,6 +55,7 @@ define_class!(
             // Code-block fills go here — drawn after the background clear but
             // BEFORE NSLayoutManager draws glyphs, so text renders on top.
             self.draw_code_block_fills();
+            self.draw_table_fills();
         }
 
         /// After the standard text view draw pass, overlay borders, copy icons,
@@ -68,6 +69,7 @@ define_class!(
             self.draw_code_blocks();
             self.draw_heading_separators();
             self.draw_thematic_breaks();
+            self.draw_table_borders();
             self.draw_table_h_separators();
             self.draw_table_v_separators();
         }
@@ -383,6 +385,110 @@ impl MditTextView {
                 NSSize::new(0.5, y_bottom - y_top),
             );
             NSRectFill(line_rect);
+        }
+    }
+
+    /// Compute the bounding rect for each table from its start/end UTF-16 positions.
+    fn table_rects(&self) -> Vec<NSRect> {
+        let delegate_ref = self.ivars().delegate.borrow();
+        let delegate = match delegate_ref.as_ref() {
+            Some(d) => d,
+            None => return Vec::new(),
+        };
+        let bounds = delegate.table_bounds();
+        if bounds.is_empty() {
+            return Vec::new();
+        }
+
+        let layout_manager = match unsafe { self.layoutManager() } {
+            Some(lm) => lm,
+            None => return Vec::new(),
+        };
+        let text_container = match unsafe { self.textContainer() } {
+            Some(tc) => tc,
+            None => return Vec::new(),
+        };
+
+        let tc_origin = self.textContainerOrigin();
+        let container_width = text_container.containerSize().width;
+        let null_ptr = std::ptr::null_mut::<objc2_foundation::NSRange>();
+
+        let mut result = Vec::new();
+        for &(start_u16, end_u16) in &bounds {
+            if start_u16 >= end_u16 {
+                continue;
+            }
+            let first_glyph: usize = unsafe {
+                msg_send![&*layout_manager, glyphIndexForCharacterAtIndex: start_u16]
+            };
+            let last_char = end_u16.saturating_sub(1);
+            let last_glyph: usize = unsafe {
+                msg_send![&*layout_manager, glyphIndexForCharacterAtIndex: last_char]
+            };
+            if first_glyph >= usize::MAX / 2 || last_glyph >= usize::MAX / 2 {
+                continue;
+            }
+
+            let top_frag: NSRect = unsafe {
+                msg_send![&*layout_manager,
+                    lineFragmentRectForGlyphAtIndex: first_glyph,
+                    effectiveRange: null_ptr]
+            };
+            let bot_frag: NSRect = unsafe {
+                msg_send![&*layout_manager,
+                    lineFragmentRectForGlyphAtIndex: last_glyph,
+                    effectiveRange: null_ptr]
+            };
+            if top_frag.size.height == 0.0 || bot_frag.size.height == 0.0 {
+                continue;
+            }
+
+            let block_y = top_frag.origin.y + tc_origin.y - 8.0;
+            let block_bottom = bot_frag.origin.y + bot_frag.size.height + tc_origin.y + 8.0;
+            let block_rect = NSRect::new(
+                NSPoint::new(tc_origin.x, block_y),
+                NSSize::new(container_width, block_bottom - block_y),
+            );
+            result.push(block_rect);
+        }
+        result
+    }
+
+    /// Draw rounded-rect background fills for all tables.
+    /// Called from drawViewBackgroundInRect: — BEFORE glyphs.
+    fn draw_table_fills(&self) {
+        let rects = self.table_rects();
+        if rects.is_empty() {
+            return;
+        }
+        let fill_color = {
+            let delegate_ref = self.ivars().delegate.borrow();
+            match delegate_ref.as_ref() {
+                Some(d) => {
+                    let (r, g, b) = d.scheme().table_bg;
+                    NSColor::colorWithRed_green_blue_alpha(r, g, b, 1.0)
+                }
+                None => return,
+            }
+        };
+        for block_rect in &rects {
+            let path =
+                NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(*block_rect, 6.0, 6.0);
+            fill_color.setFill();
+            path.fill();
+        }
+    }
+
+    /// Draw rounded-rect border strokes for all tables.
+    /// Called from drawRect: — AFTER glyphs (overlay).
+    fn draw_table_borders(&self) {
+        let rects = self.table_rects();
+        for block_rect in &rects {
+            let border_path =
+                NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(*block_rect, 6.0, 6.0);
+            border_path.setLineWidth(1.0);
+            NSColor::tertiaryLabelColor().setStroke();
+            border_path.stroke();
         }
     }
 
