@@ -8,6 +8,7 @@ pub struct ColorScheme {
     pub code_bg: (f64, f64, f64),
     pub code_fg: (f64, f64, f64),
     pub code_block_bg: (f64, f64, f64),
+    pub table_bg: (f64, f64, f64),
     pub syntax_marker: (f64, f64, f64),
     pub strikethrough: (f64, f64, f64),
     pub blockquote: (f64, f64, f64),
@@ -24,6 +25,7 @@ impl ColorScheme {
             code_bg:       (0.94, 0.94, 0.96),
             code_fg:       (0.20, 0.20, 0.20),
             code_block_bg: (0.93, 0.93, 0.95),
+            table_bg:      (0.93, 0.93, 0.95),
             syntax_marker: (0.70, 0.70, 0.70),
             strikethrough: (0.50, 0.50, 0.50),
             blockquote:    (0.40, 0.40, 0.50),
@@ -40,6 +42,7 @@ impl ColorScheme {
             code_bg:       (0.17, 0.17, 0.18),
             code_fg:       (0.85, 0.85, 0.85),
             code_block_bg: (0.16, 0.16, 0.17),
+            table_bg:      (0.16, 0.16, 0.17),
             syntax_marker: (0.40, 0.40, 0.40),
             strikethrough: (0.55, 0.55, 0.55),
             blockquote:    (0.50, 0.55, 0.65),
@@ -66,6 +69,7 @@ impl ColorScheme {
         match token {
             "code_bg"      => Some(self.code_bg),
             "code_block_bg"=> Some(self.code_block_bg),
+            "table_bg"     => Some(self.table_bg),
             _ => None,
         }
     }
@@ -105,6 +109,14 @@ mod tests {
         let a = ColorScheme::light();
         let b = a; // copy
         assert_eq!(a.text, b.text);
+    }
+
+    #[test]
+    fn table_bg_resolves() {
+        let light = ColorScheme::light();
+        assert!(light.resolve_bg("table_bg").is_some(), "light scheme should resolve table_bg");
+        let dark = ColorScheme::dark();
+        assert!(dark.resolve_bg("table_bg").is_some(), "dark scheme should resolve table_bg");
     }
 
     #[test]
