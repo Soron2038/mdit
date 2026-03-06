@@ -7,7 +7,7 @@ use objc2_foundation::{
     MainThreadMarker, NSInteger, NSObject, NSObjectProtocol, NSRange,
 };
 
-use crate::editor::apply::{apply_attribute_runs, collect_code_block_infos, CodeBlockInfo};
+use crate::editor::apply::{apply_attribute_runs, collect_code_block_infos, CodeBlockInfo, TableGrid};
 use crate::editor::renderer::compute_attribute_runs;
 use crate::markdown::parser::{parse, MarkdownSpan};
 use crate::ui::appearance::ColorScheme;
@@ -34,12 +34,8 @@ pub struct MditEditorDelegateIvars {
     /// Code block metadata updated after every re-parse.
     /// Read by MditTextView to draw the visual overlay and copy-to-clipboard.
     code_block_infos: RefCell<Vec<CodeBlockInfo>>,
-    /// UTF-16 offsets of table row boundaries for horizontal grid lines.
-    table_h_sep_positions: RefCell<Vec<usize>>,
-    /// UTF-16 offsets of table pipe characters for vertical grid lines.
-    table_pipe_sep_positions: RefCell<Vec<usize>>,
-    /// Per-table (start_utf16, end_utf16) for drawing rounded borders.
-    table_bounds: RefCell<Vec<(usize, usize)>>,
+    /// Per-table grid data for drawing borders and grid lines.
+    table_grids: RefCell<Vec<TableGrid>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -94,9 +90,7 @@ define_class!(
             self.ivars().applying.set(false);
             *self.ivars().heading_sep_positions.borrow_mut() = positions.heading_seps;
             *self.ivars().thematic_break_positions.borrow_mut() = positions.thematic_breaks;
-            *self.ivars().table_h_sep_positions.borrow_mut() = positions.table_h_seps;
-            *self.ivars().table_pipe_sep_positions.borrow_mut() = positions.table_pipe_seps;
-            *self.ivars().table_bounds.borrow_mut() = positions.table_bounds;
+            *self.ivars().table_grids.borrow_mut() = positions.table_grids;
             let infos = {
                 let spans_ref = self.ivars().spans.borrow();
                 collect_code_block_infos(&spans_ref, &text)
@@ -121,9 +115,7 @@ impl MditEditorDelegate {
             heading_sep_positions: RefCell::new(Vec::new()),
             thematic_break_positions: RefCell::new(Vec::new()),
             code_block_infos: RefCell::new(Vec::new()),
-            table_h_sep_positions: RefCell::new(Vec::new()),
-            table_pipe_sep_positions: RefCell::new(Vec::new()),
-            table_bounds: RefCell::new(Vec::new()),
+            table_grids: RefCell::new(Vec::new()),
         });
         unsafe { msg_send![super(this), init] }
     }
@@ -176,9 +168,7 @@ impl MditEditorDelegate {
         self.ivars().applying.set(false);
         *self.ivars().heading_sep_positions.borrow_mut() = positions.heading_seps;
         *self.ivars().thematic_break_positions.borrow_mut() = positions.thematic_breaks;
-        *self.ivars().table_h_sep_positions.borrow_mut() = positions.table_h_seps;
-        *self.ivars().table_pipe_sep_positions.borrow_mut() = positions.table_pipe_seps;
-        *self.ivars().table_bounds.borrow_mut() = positions.table_bounds;
+        *self.ivars().table_grids.borrow_mut() = positions.table_grids;
         let infos = {
             let spans_ref = self.ivars().spans.borrow();
             collect_code_block_infos(&spans_ref, &text)
@@ -204,20 +194,8 @@ impl MditEditorDelegate {
         self.ivars().code_block_infos.borrow().clone()
     }
 
-    /// Returns the UTF-16 character offsets of table row boundaries.
-    /// Used by `MditTextView` to draw horizontal separator lines.
-    pub fn table_h_sep_positions(&self) -> Vec<usize> {
-        self.ivars().table_h_sep_positions.borrow().clone()
-    }
-
-    /// Returns the UTF-16 character offsets of table pipe characters.
-    /// Used by `MditTextView` to draw vertical separator lines.
-    pub fn table_pipe_sep_positions(&self) -> Vec<usize> {
-        self.ivars().table_pipe_sep_positions.borrow().clone()
-    }
-
-    /// Returns per-table (start_utf16, end_utf16) bounding positions.
-    pub fn table_bounds(&self) -> Vec<(usize, usize)> {
-        self.ivars().table_bounds.borrow().clone()
+    /// Returns per-table grid data for drawing borders and grid lines.
+    pub fn table_grids(&self) -> Vec<TableGrid> {
+        self.ivars().table_grids.borrow().clone()
     }
 }
