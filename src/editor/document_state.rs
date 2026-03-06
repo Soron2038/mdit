@@ -9,6 +9,7 @@ use objc2_foundation::{MainThreadMarker, NSRect};
 
 use crate::editor::text_storage::MditEditorDelegate;
 use crate::editor::text_view::create_editor_view;
+use crate::editor::view_mode::ViewMode;
 use crate::ui::appearance::ColorScheme;
 
 /// All state belonging to one open document (tab).
@@ -20,6 +21,8 @@ pub struct DocumentState {
     pub url: RefCell<Option<PathBuf>>,
     /// True when content differs from the last saved version.
     pub is_dirty: Cell<bool>,
+    /// Current view mode: Viewer (rendered, read-only) or Editor (raw, editable).
+    pub mode: Cell<ViewMode>,
 }
 
 impl DocumentState {
@@ -34,6 +37,7 @@ impl DocumentState {
             editor_delegate,
             url: RefCell::new(None),
             is_dirty: Cell::new(false),
+            mode: Cell::new(ViewMode::Viewer),
         }
     }
 }

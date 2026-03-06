@@ -1,6 +1,7 @@
 pub mod text_view;
 pub mod text_storage;
 pub mod renderer;
+pub mod editor_renderer;
 pub mod apply;
 pub mod cursor_tracker;
 pub mod image_handler;
@@ -8,3 +9,4 @@ pub mod math_view;
 pub mod document_state;
 pub mod formatting;
 pub mod tab_manager;
+pub mod view_mode;

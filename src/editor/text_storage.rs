@@ -8,7 +8,9 @@ use objc2_foundation::{
 };
 
 use crate::editor::apply::{apply_attribute_runs, collect_code_block_infos, CodeBlockInfo, TableGrid};
+use crate::editor::editor_renderer::compute_editor_runs;
 use crate::editor::renderer::compute_attribute_runs;
+use crate::editor::view_mode::ViewMode;
 use crate::markdown::parser::{parse, MarkdownSpan};
 use crate::ui::appearance::ColorScheme;
 
@@ -36,6 +38,8 @@ pub struct MditEditorDelegateIvars {
     code_block_infos: RefCell<Vec<CodeBlockInfo>>,
     /// Per-table grid data for drawing borders and grid lines.
     table_grids: RefCell<Vec<TableGrid>>,
+    /// Current view mode: Viewer uses full rendering, Editor uses syntax highlighting.
+    mode: Cell<ViewMode>,
 }
 
 // ---------------------------------------------------------------------------
@@ -76,26 +80,45 @@ define_class!(
             let new_spans = parse(&text);
             *self.ivars().spans.borrow_mut() = new_spans;
 
-            // ── Apply visual attributes ───────────────────────────────────
-            let cursor_pos = self.ivars().cursor_pos.get();
-            let output = {
-                let spans = self.ivars().spans.borrow();
-                compute_attribute_runs(&text, &spans, cursor_pos)
-            };
             let scheme = self.ivars().scheme.get();
             self.ivars().applying.set(true);
-            let positions = apply_attribute_runs(
-                text_storage, &text, &output.runs, &output.table_infos, &scheme,
-            );
-            self.ivars().applying.set(false);
-            *self.ivars().heading_sep_positions.borrow_mut() = positions.heading_seps;
-            *self.ivars().thematic_break_positions.borrow_mut() = positions.thematic_breaks;
-            *self.ivars().table_grids.borrow_mut() = positions.table_grids;
-            let infos = {
-                let spans_ref = self.ivars().spans.borrow();
-                collect_code_block_infos(&spans_ref, &text)
-            };
-            *self.ivars().code_block_infos.borrow_mut() = infos;
+
+            if self.ivars().mode.get() == ViewMode::Editor {
+                // ── Editor mode: simplified syntax highlighting ───────────
+                let runs = {
+                    let spans = self.ivars().spans.borrow();
+                    compute_editor_runs(&text, &spans)
+                };
+                let empty_tables = Vec::new();
+                let _ = apply_attribute_runs(
+                    text_storage, &text, &runs, &empty_tables, &scheme,
+                );
+                self.ivars().applying.set(false);
+                // Clear drawing positions — no custom drawing in editor mode.
+                self.ivars().heading_sep_positions.borrow_mut().clear();
+                self.ivars().thematic_break_positions.borrow_mut().clear();
+                self.ivars().table_grids.borrow_mut().clear();
+                self.ivars().code_block_infos.borrow_mut().clear();
+            } else {
+                // ── Viewer mode: full rendering pipeline ──────────────────
+                let cursor_pos = self.ivars().cursor_pos.get();
+                let output = {
+                    let spans = self.ivars().spans.borrow();
+                    compute_attribute_runs(&text, &spans, cursor_pos)
+                };
+                let positions = apply_attribute_runs(
+                    text_storage, &text, &output.runs, &output.table_infos, &scheme,
+                );
+                self.ivars().applying.set(false);
+                *self.ivars().heading_sep_positions.borrow_mut() = positions.heading_seps;
+                *self.ivars().thematic_break_positions.borrow_mut() = positions.thematic_breaks;
+                *self.ivars().table_grids.borrow_mut() = positions.table_grids;
+                let infos = {
+                    let spans_ref = self.ivars().spans.borrow();
+                    collect_code_block_infos(&spans_ref, &text)
+                };
+                *self.ivars().code_block_infos.borrow_mut() = infos;
+            }
         }
     }
 );
@@ -116,6 +139,7 @@ impl MditEditorDelegate {
             thematic_break_positions: RefCell::new(Vec::new()),
             code_block_infos: RefCell::new(Vec::new()),
             table_grids: RefCell::new(Vec::new()),
+            mode: Cell::new(ViewMode::Viewer),
         });
         unsafe { msg_send![super(this), init] }
     }
@@ -155,25 +179,45 @@ impl MditEditorDelegate {
         if text.is_empty() {
             return;
         }
-        let cursor_pos = self.ivars().cursor_pos.get();
-        let output = {
-            let spans = self.ivars().spans.borrow();
-            compute_attribute_runs(&text, &spans, cursor_pos)
-        };
+
+        // Re-parse spans so both modes have up-to-date AST.
+        let new_spans = parse(&text);
+        *self.ivars().spans.borrow_mut() = new_spans;
+
         let scheme = self.ivars().scheme.get();
         self.ivars().applying.set(true);
-        let positions = apply_attribute_runs(
-            storage, &text, &output.runs, &output.table_infos, &scheme,
-        );
-        self.ivars().applying.set(false);
-        *self.ivars().heading_sep_positions.borrow_mut() = positions.heading_seps;
-        *self.ivars().thematic_break_positions.borrow_mut() = positions.thematic_breaks;
-        *self.ivars().table_grids.borrow_mut() = positions.table_grids;
-        let infos = {
-            let spans_ref = self.ivars().spans.borrow();
-            collect_code_block_infos(&spans_ref, &text)
-        };
-        *self.ivars().code_block_infos.borrow_mut() = infos;
+
+        if self.ivars().mode.get() == ViewMode::Editor {
+            let runs = {
+                let spans = self.ivars().spans.borrow();
+                compute_editor_runs(&text, &spans)
+            };
+            let empty_tables = Vec::new();
+            let _ = apply_attribute_runs(storage, &text, &runs, &empty_tables, &scheme);
+            self.ivars().applying.set(false);
+            self.ivars().heading_sep_positions.borrow_mut().clear();
+            self.ivars().thematic_break_positions.borrow_mut().clear();
+            self.ivars().table_grids.borrow_mut().clear();
+            self.ivars().code_block_infos.borrow_mut().clear();
+        } else {
+            let cursor_pos = self.ivars().cursor_pos.get();
+            let output = {
+                let spans = self.ivars().spans.borrow();
+                compute_attribute_runs(&text, &spans, cursor_pos)
+            };
+            let positions = apply_attribute_runs(
+                storage, &text, &output.runs, &output.table_infos, &scheme,
+            );
+            self.ivars().applying.set(false);
+            *self.ivars().heading_sep_positions.borrow_mut() = positions.heading_seps;
+            *self.ivars().thematic_break_positions.borrow_mut() = positions.thematic_breaks;
+            *self.ivars().table_grids.borrow_mut() = positions.table_grids;
+            let infos = {
+                let spans_ref = self.ivars().spans.borrow();
+                collect_code_block_infos(&spans_ref, &text)
+            };
+            *self.ivars().code_block_infos.borrow_mut() = infos;
+        }
     }
 
     /// Returns the UTF-16 character offsets of H1/H2 heading paragraph starts.
@@ -197,5 +241,15 @@ impl MditEditorDelegate {
     /// Returns per-table grid data for drawing borders and grid lines.
     pub fn table_grids(&self) -> Vec<TableGrid> {
         self.ivars().table_grids.borrow().clone()
+    }
+
+    /// Get the current view mode.
+    pub fn mode(&self) -> ViewMode {
+        self.ivars().mode.get()
+    }
+
+    /// Set the view mode (Viewer or Editor).
+    pub fn set_mode(&self, mode: ViewMode) {
+        self.ivars().mode.set(mode);
     }
 }
