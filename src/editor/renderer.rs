@@ -484,29 +484,18 @@ fn collect_table(
     // ── Mark separator row (gap between last header and first body row) ──
     if let (Some(sep_start), Some(sep_end)) = (header_end, first_body_start) {
         if sep_start < sep_end {
-            let mut attrs = syn.clone();
-            if !cursor_in {
-                attrs = attrs.with(TextAttribute::TableSeparatorLine);
-            }
-            runs.push(AttributeRun { range: (sep_start, sep_end), attrs });
+            runs.push(AttributeRun { range: (sep_start, sep_end), attrs: syn.clone() });
         }
     }
 
     // ── Process each data row ────────────────────────────────────────────
-    let mut body_row_count: usize = 0;
     let mut all_row_pipes: Vec<Vec<usize>> = Vec::new();
     let mut all_row_ranges: Vec<(usize, usize)> = Vec::new();
 
     for row in &span.children {
-        let is_body = matches!(&row.kind, NodeKind::TableRow { header: false });
-        if is_body {
-            body_row_count += 1;
-        }
         if !matches!(&row.kind, NodeKind::TableRow { .. }) {
             continue;
         }
-
-        let needs_h_sep = is_body && body_row_count > 1;
 
         // Collect cell byte ranges to distinguish structural pipes from cell content.
         let cell_ranges: Vec<(usize, usize)> = row
@@ -516,9 +505,8 @@ fn collect_table(
             .map(|c| c.source_range)
             .collect();
 
-        // Scan for pipe characters in the row.
+        // Scan for pipe characters in the row — just mark them Hidden, no special attributes.
         let row_end = row.source_range.1.min(text.len());
-        let mut is_first_pipe = true;
         let mut row_pipe_positions: Vec<usize> = Vec::new();
         for pos in row.source_range.0..row_end {
             if text.as_bytes().get(pos) != Some(&b'|') {
@@ -529,15 +517,7 @@ fn collect_table(
                 continue;
             }
             row_pipe_positions.push(pos);
-            let mut pipe_attrs = syn.clone();
-            if !cursor_in {
-                pipe_attrs = pipe_attrs.with(TextAttribute::TablePipe);
-                if is_first_pipe && needs_h_sep {
-                    pipe_attrs = pipe_attrs.with(TextAttribute::TableSeparatorLine);
-                }
-            }
-            runs.push(AttributeRun { range: (pos, pos + 1), attrs: pipe_attrs });
-            is_first_pipe = false;
+            runs.push(AttributeRun { range: (pos, pos + 1), attrs: syn.clone() });
         }
         all_row_pipes.push(row_pipe_positions);
         all_row_ranges.push((row.source_range.0, row.source_range.1.min(text.len())));
