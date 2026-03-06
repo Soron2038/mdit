@@ -20,6 +20,8 @@ pub struct TableInfo {
     pub cursor_inside: bool,
     /// Byte range of the entire table (start, end) from the AST span.
     pub source_range: (usize, usize),
+    /// Byte ranges of each data row (header + body rows, excluding separator).
+    pub row_ranges: Vec<(usize, usize)>,
 }
 
 /// Combined output of `compute_attribute_runs`.
@@ -493,6 +495,7 @@ fn collect_table(
     // ── Process each data row ────────────────────────────────────────────
     let mut body_row_count: usize = 0;
     let mut all_row_pipes: Vec<Vec<usize>> = Vec::new();
+    let mut all_row_ranges: Vec<(usize, usize)> = Vec::new();
 
     for row in &span.children {
         let is_body = matches!(&row.kind, NodeKind::TableRow { header: false });
@@ -537,6 +540,7 @@ fn collect_table(
             is_first_pipe = false;
         }
         all_row_pipes.push(row_pipe_positions);
+        all_row_ranges.push((row.source_range.0, row.source_range.1.min(text.len())));
 
         // Process cell children for inline formatting.
         for cell in &row.children {
@@ -553,6 +557,7 @@ fn collect_table(
         row_pipes: all_row_pipes,
         cursor_inside: cursor_in,
         source_range: (span.source_range.0, span.source_range.1.min(text.len())),
+        row_ranges: all_row_ranges,
     });
 }
 

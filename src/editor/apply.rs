@@ -196,6 +196,24 @@ pub fn apply_attribute_runs(
     for table_info in table_infos {
         if !table_info.cursor_inside {
             equalize_table_columns(storage, text, &table_info.row_pipes);
+
+            // Apply vertical padding to each table row.
+            for &(row_start, row_end) in &table_info.row_ranges {
+                let row_start_u16 = byte_to_utf16(text, row_start);
+                let row_end_u16 = byte_to_utf16(text, row_end);
+                if row_start_u16 >= row_end_u16 {
+                    continue;
+                }
+                let row_range = NSRange { location: row_start_u16, length: row_end_u16 - row_start_u16 };
+                let style = make_table_row_para_style(9.6, 10.0, 10.0);
+                unsafe {
+                    storage.addAttribute_value_range(
+                        NSParagraphStyleAttributeName,
+                        style.as_ref(),
+                        row_range,
+                    );
+                }
+            }
         }
         let start_u16 = byte_to_utf16(text, table_info.source_range.0);
         let end_u16 = byte_to_utf16(text, table_info.source_range.1);
@@ -480,6 +498,19 @@ fn make_para_style_with_spacing_before(
     let style = NSMutableParagraphStyle::new();
     style.setLineSpacing(line_spacing);
     style.setParagraphSpacingBefore(spacing_before);
+    style
+}
+
+/// Build an `NSMutableParagraphStyle` for table rows with vertical cell padding.
+fn make_table_row_para_style(
+    line_spacing: f64,
+    spacing_before: f64,
+    spacing_after: f64,
+) -> Retained<NSMutableParagraphStyle> {
+    let style = NSMutableParagraphStyle::new();
+    style.setLineSpacing(line_spacing);
+    style.setParagraphSpacingBefore(spacing_before);
+    style.setParagraphSpacing(spacing_after);
     style
 }
 
