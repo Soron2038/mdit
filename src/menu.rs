@@ -97,7 +97,7 @@ fn edit_menu(mtm: MainThreadMarker) -> Retained<NSMenuItem> {
     // Markdown formatting — dispatched to AppDelegate action methods
     menu.addItem(&with_cmd(item("Bold", Some(sel!(applyBold:)), "b", mtm)));
     menu.addItem(&with_cmd(item("Italic", Some(sel!(applyItalic:)), "i", mtm)));
-    menu.addItem(&with_cmd(item("Inline Code", Some(sel!(applyInlineCode:)), "e", mtm)));
+    menu.addItem(&with_cmd(item("Inline Code", Some(sel!(applyInlineCode:)), "`", mtm)));
     menu.addItem(&with_cmd(item("Link", Some(sel!(applyLink:)), "k", mtm)));
     menu.addItem(&with_cmd_shift(item(
         "Strikethrough",
@@ -117,6 +117,10 @@ fn edit_menu(mtm: MainThreadMarker) -> Retained<NSMenuItem> {
 
 fn view_menu(mtm: MainThreadMarker) -> Retained<NSMenuItem> {
     let menu = new_menu("View", mtm);
+
+    // Toggle Editor/Viewer mode — Cmd+E
+    menu.addItem(&with_cmd(item("Toggle Editor", Some(sel!(toggleMode:)), "e", mtm)));
+    menu.addItem(&NSMenuItem::separatorItem(mtm));
 
     // Appearance submenu — Cmd+Shift+L toggles System mode (quick toggle);
     // individual Light/Dark items live in the submenu.

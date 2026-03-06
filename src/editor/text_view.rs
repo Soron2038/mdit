@@ -12,6 +12,7 @@ use objc2_foundation::{MainThreadMarker, NSObjectProtocol, NSPoint, NSRect, NSSi
 
 use super::text_storage::MditEditorDelegate;
 use crate::editor::apply::TableGrid;
+use crate::editor::view_mode::ViewMode;
 use crate::ui::appearance::ColorScheme;
 
 // ---------------------------------------------------------------------------
@@ -53,10 +54,11 @@ define_class!(
         fn draw_view_background_in_rect(&self, rect: NSRect) {
             // Default background fill (editor background color).
             let _: () = unsafe { msg_send![super(self), drawViewBackgroundInRect: rect] };
-            // Code-block fills go here — drawn after the background clear but
-            // BEFORE NSLayoutManager draws glyphs, so text renders on top.
-            self.draw_code_block_fills();
-            self.draw_table_fills();
+            // Skip custom drawing in Editor mode — only raw text with syntax highlighting.
+            if self.is_viewer_mode() {
+                self.draw_code_block_fills();
+                self.draw_table_fills();
+            }
         }
 
         /// After the standard text view draw pass, overlay borders, copy icons,
@@ -66,13 +68,15 @@ define_class!(
             // super.drawRect: calls drawViewBackgroundInRect: (our override above)
             // which draws code-block fills before glyphs are rendered.
             let _: () = unsafe { msg_send![super(self), drawRect: dirty_rect] };
-            // Border strokes + copy icons drawn after glyphs (correct for overlays).
-            self.draw_code_blocks();
-            self.draw_heading_separators();
-            self.draw_thematic_breaks();
-            self.draw_table_borders();
-            self.draw_table_h_separators();
-            self.draw_table_v_separators();
+            // Skip custom drawing in Editor mode.
+            if self.is_viewer_mode() {
+                self.draw_code_blocks();
+                self.draw_heading_separators();
+                self.draw_thematic_breaks();
+                self.draw_table_borders();
+                self.draw_table_h_separators();
+                self.draw_table_v_separators();
+            }
         }
 
         /// Timer callback — clears the copy-feedback state and triggers a redraw
@@ -146,6 +150,15 @@ impl MditTextView {
     /// accessible during `drawRect:`.
     pub fn set_editor_delegate(&self, delegate: Retained<MditEditorDelegate>) {
         *self.ivars().delegate.borrow_mut() = Some(delegate);
+    }
+
+    /// Returns `true` if the delegate is in Viewer mode (or if no delegate is set).
+    fn is_viewer_mode(&self) -> bool {
+        let delegate_ref = self.ivars().delegate.borrow();
+        match delegate_ref.as_ref() {
+            Some(d) => d.mode() == ViewMode::Viewer,
+            None => true,
+        }
     }
 
     fn draw_heading_separators(&self) {

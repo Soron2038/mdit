@@ -15,6 +15,7 @@ use objc2_foundation::{
 
 use mdit::editor::document_state::DocumentState;
 use mdit::editor::tab_manager::{TabCloseResult, TabManager};
+use mdit::editor::view_mode::ViewMode;
 use mdit::menu::build_main_menu;
 use mdit::ui::appearance::ColorScheme;
 use mdit::ui::path_bar::PathBar;
@@ -80,21 +81,22 @@ define_class!(
             ));
             content.addSubview(tab_bar.view());
 
-            // PathBar at the bottom
-            let path_bar = PathBar::new(mtm, w);
-            content.addSubview(path_bar.view());
-
             let target: &AnyObject = unsafe {
                 &*(self as *const AppDelegate as *const AnyObject)
             };
 
-            // Sidebar — permanent left-margin formatting toolbar
+            // PathBar at the bottom (with toggle button targeting AppDelegate)
+            let path_bar = PathBar::new(mtm, w, target);
+            content.addSubview(path_bar.view());
+
+            // Sidebar — formatting toolbar (hidden in default Viewer mode)
             let content_h = (h - TAB_H - PATH_H).max(0.0);
             let sidebar = FormattingSidebar::new(mtm, content_h, target);
             sidebar.view().setFrame(NSRect::new(
                 NSPoint::new(0.0, PATH_H),
                 NSSize::new(SIDEBAR_W, content_h),
             ));
+            sidebar.view().setHidden(true); // Viewer mode: sidebar hidden
             content.addSubview(sidebar.view());
 
             self.ivars().window.set(window).unwrap();
@@ -217,6 +219,13 @@ define_class!(
         fn apply_system_mode(&self, _sender: &AnyObject) {
             let scheme = detect_scheme(&NSApplication::sharedApplication(self.mtm()));
             self.apply_scheme(scheme);
+        }
+
+        // ── View mode toggle ───────────────────────────────────────────
+
+        #[unsafe(method(toggleMode:))]
+        fn toggle_mode_action(&self, _sender: &AnyObject) {
+            self.toggle_mode();
         }
 
         // ── File operations ──────────────────────────────────────────────
@@ -396,7 +405,8 @@ impl AppDelegate {
         unsafe { msg_send![super(this), init] }
     }
 
-    /// Frame for the active NSScrollView (between TabBar and PathBar, right of Sidebar).
+    /// Frame for the active NSScrollView (between TabBar and PathBar).
+    /// In Viewer mode, the sidebar is hidden so the editor gets the full width.
     fn content_frame(&self) -> NSRect {
         let Some(win) = self.ivars().window.get() else {
             return NSRect::ZERO;
@@ -404,10 +414,68 @@ impl AppDelegate {
         let bounds = win.contentView().unwrap().bounds();
         let h = bounds.size.height;
         let w = bounds.size.width;
+        let sidebar_visible = self.is_editor_mode();
+        let sidebar_w = if sidebar_visible { SIDEBAR_W } else { 0.0 };
         NSRect::new(
-            NSPoint::new(SIDEBAR_W, PATH_H),
-            NSSize::new((w - SIDEBAR_W).max(0.0), (h - TAB_H - PATH_H).max(0.0)),
+            NSPoint::new(sidebar_w, PATH_H),
+            NSSize::new((w - sidebar_w).max(0.0), (h - TAB_H - PATH_H).max(0.0)),
         )
+    }
+
+    /// Returns true if the active tab is in Editor mode.
+    fn is_editor_mode(&self) -> bool {
+        let tm = self.ivars().tab_manager.borrow();
+        tm.active().map(|t| t.mode.get() == ViewMode::Editor).unwrap_or(false)
+    }
+
+    /// Toggle between Viewer and Editor mode for the active tab.
+    fn toggle_mode(&self) {
+        let (new_mode, text_view, editor_delegate) = {
+            let tm = self.ivars().tab_manager.borrow();
+            let tab = match tm.active() {
+                Some(t) => t,
+                None => return,
+            };
+            let current = tab.mode.get();
+            let new_mode = match current {
+                ViewMode::Viewer => ViewMode::Editor,
+                ViewMode::Editor => ViewMode::Viewer,
+            };
+            tab.mode.set(new_mode);
+            (new_mode, tab.text_view.clone(), tab.editor_delegate.clone())
+        };
+
+        // Update delegate mode so rendering pipeline switches.
+        editor_delegate.set_mode(new_mode);
+
+        // Configure text view editability.
+        text_view.setEditable(new_mode == ViewMode::Editor);
+
+        // Show/hide sidebar.
+        if let Some(sb) = self.ivars().sidebar.get() {
+            sb.view().setHidden(new_mode == ViewMode::Viewer);
+        }
+
+        // Recompute scroll view frame (sidebar width changes).
+        let frame = self.content_frame();
+        {
+            let tm = self.ivars().tab_manager.borrow();
+            if let Some(t) = tm.active() {
+                t.scroll_view.setFrame(frame);
+            }
+        }
+
+        // Re-render with the new pipeline.
+        if let Some(storage) = unsafe { text_view.textStorage() } {
+            editor_delegate.reapply(&storage);
+        }
+
+        // Update path bar toggle icon.
+        if let Some(pb) = self.ivars().path_bar.get() {
+            pb.update_mode_icon(new_mode);
+        }
+
+        self.update_text_container_inset();
     }
 
     /// Active text view for formatting actions.
@@ -447,6 +515,15 @@ impl AppDelegate {
 
         self.ivars().tab_manager.borrow_mut().switch_to(index);
 
+        // Restore sidebar visibility for the new tab's mode.
+        let new_mode = {
+            let tm = self.ivars().tab_manager.borrow();
+            tm.get(index).map(|t| t.mode.get()).unwrap_or(ViewMode::Viewer)
+        };
+        if let Some(sb) = self.ivars().sidebar.get() {
+            sb.view().setHidden(new_mode == ViewMode::Viewer);
+        }
+
         // Insert new scroll view
         let frame = self.content_frame();
         {
@@ -462,6 +539,7 @@ impl AppDelegate {
             let tm = self.ivars().tab_manager.borrow();
             let url = tm.get(index).and_then(|t| t.url.borrow().clone());
             pb.update(url.as_deref());
+            pb.update_mode_icon(new_mode);
         }
 
         self.rebuild_tab_bar();
@@ -469,12 +547,15 @@ impl AppDelegate {
     }
 
     /// Create a new empty tab and activate it.
+    /// New tabs start in Viewer mode (non-editable, sidebar hidden).
     fn add_empty_tab(&self) {
         let mtm = self.mtm();
         let scheme = self.ivars().tab_manager.borrow().first_scheme()
             .unwrap_or_else(ColorScheme::light);
         let frame = self.content_frame();
         let tab = DocumentState::new_empty(mtm, scheme, frame);
+        // Default to Viewer mode: non-editable.
+        tab.text_view.setEditable(false);
         tab.text_view
             .setDelegate(Some(ProtocolObject::from_ref(self)));
         let new_idx = self.ivars().tab_manager.borrow_mut().add(tab);
@@ -645,7 +726,8 @@ impl AppDelegate {
         let Some(win) = self.ivars().window.get() else {
             return;
         };
-        let editor_width = (win.frame().size.width - SIDEBAR_W).max(0.0);
+        let sidebar_w = if self.is_editor_mode() { SIDEBAR_W } else { 0.0 };
+        let editor_width = (win.frame().size.width - sidebar_w).max(0.0);
         let max_text_width = 700.0_f64;
         let min_padding = 40.0_f64;
         let h_inset = if editor_width > max_text_width + 2.0 * min_padding {
