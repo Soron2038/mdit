@@ -11,6 +11,7 @@ use objc2_app_kit::{
 use objc2_foundation::{MainThreadMarker, NSObjectProtocol, NSPoint, NSRect, NSSize, NSString};
 
 use super::text_storage::MditEditorDelegate;
+use crate::editor::apply::TableGrid;
 use crate::ui::appearance::ColorScheme;
 
 // ---------------------------------------------------------------------------
@@ -278,8 +279,9 @@ impl MditTextView {
             Some(d) => d,
             None => return,
         };
-        let positions = delegate.table_h_sep_positions();
-        if positions.is_empty() {
+        let grids = delegate.table_grids();
+        drop(delegate_ref);
+        if grids.is_empty() {
             return;
         }
 
@@ -287,24 +289,16 @@ impl MditTextView {
             Some(lm) => lm,
             None => return,
         };
-        let text_container = match unsafe { self.textContainer() } {
-            Some(tc) => tc,
-            None => return,
-        };
 
         let tc_origin = self.textContainerOrigin();
-        let container_size = text_container.containerSize();
-        let x_start = tc_origin.x;
-        let x_end = x_start + container_size.width;
+        let rects = self.table_rects_from_grids(&grids);
 
         // Clip to table border rects so lines don't extend beyond rounded corners.
-        let table_rects = self.table_rects();
-        let clipping = !table_rects.is_empty();
-        if clipping {
+        if !rects.is_empty() {
             let ctx_cls = objc2::runtime::AnyClass::get(c"NSGraphicsContext").unwrap();
             let _: () = unsafe { msg_send![ctx_cls, saveGraphicsState] };
             let clip_path = NSBezierPath::bezierPath();
-            for rect in &table_rects {
+            for rect in &rects {
                 let rounded = NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(*rect, 6.0, 6.0);
                 clip_path.appendBezierPath(&rounded);
             }
@@ -313,50 +307,51 @@ impl MditTextView {
 
         let sep_color = NSColor::tertiaryLabelColor();
         sep_color.setFill();
+        let null_ptr = std::ptr::null_mut::<objc2_foundation::NSRange>();
 
-        for &utf16_pos in &positions {
-            let glyph_idx: usize =
-                unsafe { msg_send![&*layout_manager, glyphIndexForCharacterAtIndex: utf16_pos] };
-            if glyph_idx == usize::MAX {
-                continue;
+        for (grid, table_rect) in grids.iter().zip(rects.iter()) {
+            for &utf16_pos in &grid.row_seps {
+                let glyph_idx: usize =
+                    unsafe { msg_send![&*layout_manager, glyphIndexForCharacterAtIndex: utf16_pos] };
+                if glyph_idx >= usize::MAX / 2 {
+                    continue;
+                }
+                let frag_rect: NSRect = unsafe {
+                    msg_send![
+                        &*layout_manager,
+                        lineFragmentRectForGlyphAtIndex: glyph_idx,
+                        effectiveRange: null_ptr
+                    ]
+                };
+                if frag_rect.size.height == 0.0 {
+                    continue;
+                }
+
+                let y = frag_rect.origin.y + tc_origin.y;
+                let line_rect = NSRect::new(
+                    NSPoint::new(table_rect.origin.x, y - 0.5),
+                    NSSize::new(table_rect.size.width, 1.0),
+                );
+                NSRectFill(line_rect);
             }
-
-            let null_ptr = std::ptr::null_mut::<objc2_foundation::NSRange>();
-            let frag_rect: NSRect = unsafe {
-                msg_send![
-                    &*layout_manager,
-                    lineFragmentRectForGlyphAtIndex: glyph_idx,
-                    effectiveRange: null_ptr
-                ]
-            };
-            if frag_rect.size.height == 0.0 {
-                continue;
-            }
-
-            // Draw at the top of the line fragment (= boundary between rows).
-            let y = frag_rect.origin.y + tc_origin.y;
-            let line_rect = NSRect::new(
-                NSPoint::new(x_start, y - 0.5),
-                NSSize::new(x_end - x_start, 1.0),
-            );
-            NSRectFill(line_rect);
         }
 
-        if clipping {
+        if !rects.is_empty() {
             let ctx_cls = objc2::runtime::AnyClass::get(c"NSGraphicsContext").unwrap();
             let _: () = unsafe { msg_send![ctx_cls, restoreGraphicsState] };
         }
     }
 
-    /// Draw vertical separator lines at table pipe positions.
+    /// Draw vertical separator lines at table column boundaries.
     fn draw_table_v_separators(&self) {
         let delegate_ref = self.ivars().delegate.borrow();
         let delegate = match delegate_ref.as_ref() {
             Some(d) => d,
             None => return,
         };
-        let positions = delegate.table_pipe_sep_positions();
-        if positions.is_empty() {
+        let grids = delegate.table_grids();
+        drop(delegate_ref);
+        if grids.is_empty() {
             return;
         }
 
@@ -366,15 +361,14 @@ impl MditTextView {
         };
 
         let tc_origin = self.textContainerOrigin();
+        let rects = self.table_rects_from_grids(&grids);
 
         // Clip to table border rects.
-        let table_rects = self.table_rects();
-        let clipping = !table_rects.is_empty();
-        if clipping {
+        if !rects.is_empty() {
             let ctx_cls = objc2::runtime::AnyClass::get(c"NSGraphicsContext").unwrap();
             let _: () = unsafe { msg_send![ctx_cls, saveGraphicsState] };
             let clip_path = NSBezierPath::bezierPath();
-            for rect in &table_rects {
+            for rect in &rects {
                 let rounded = NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(*rect, 6.0, 6.0);
                 clip_path.appendBezierPath(&rounded);
             }
@@ -383,58 +377,51 @@ impl MditTextView {
 
         let sep_color = NSColor::tertiaryLabelColor();
         sep_color.setFill();
-
         let null_ptr = std::ptr::null_mut::<objc2_foundation::NSRange>();
 
-        for &utf16_pos in &positions {
-            let glyph_idx: usize =
-                unsafe { msg_send![&*layout_manager, glyphIndexForCharacterAtIndex: utf16_pos] };
-            if glyph_idx >= usize::MAX / 2 {
-                continue;
+        for (grid, table_rect) in grids.iter().zip(rects.iter()) {
+            for &utf16_pos in &grid.column_seps {
+                let glyph_idx: usize =
+                    unsafe { msg_send![&*layout_manager, glyphIndexForCharacterAtIndex: utf16_pos] };
+                if glyph_idx >= usize::MAX / 2 {
+                    continue;
+                }
+                let frag_rect: NSRect = unsafe {
+                    msg_send![
+                        &*layout_manager,
+                        lineFragmentRectForGlyphAtIndex: glyph_idx,
+                        effectiveRange: null_ptr
+                    ]
+                };
+                if frag_rect.size.height == 0.0 {
+                    continue;
+                }
+
+                let glyph_loc: NSPoint = unsafe {
+                    msg_send![&*layout_manager, locationForGlyphAtIndex: glyph_idx]
+                };
+
+                let x = frag_rect.origin.x + glyph_loc.x + tc_origin.x;
+                let line_rect = NSRect::new(
+                    NSPoint::new(x - 0.5, table_rect.origin.y),
+                    NSSize::new(1.0, table_rect.size.height),
+                );
+                NSRectFill(line_rect);
             }
-
-            let frag_rect: NSRect = unsafe {
-                msg_send![
-                    &*layout_manager,
-                    lineFragmentRectForGlyphAtIndex: glyph_idx,
-                    effectiveRange: null_ptr
-                ]
-            };
-            if frag_rect.size.height == 0.0 {
-                continue;
-            }
-
-            // Glyph location within the line fragment.
-            let glyph_loc: NSPoint = unsafe {
-                msg_send![&*layout_manager, locationForGlyphAtIndex: glyph_idx]
-            };
-
-            let x = frag_rect.origin.x + glyph_loc.x + tc_origin.x;
-            let y_top = frag_rect.origin.y + tc_origin.y;
-            let y_bottom = y_top + frag_rect.size.height;
-
-            let line_rect = NSRect::new(
-                NSPoint::new(x - 0.5, y_top),
-                NSSize::new(1.0, y_bottom - y_top),
-            );
-            NSRectFill(line_rect);
         }
 
-        if clipping {
+        if !rects.is_empty() {
             let ctx_cls = objc2::runtime::AnyClass::get(c"NSGraphicsContext").unwrap();
             let _: () = unsafe { msg_send![ctx_cls, restoreGraphicsState] };
         }
     }
 
-    /// Compute the bounding rect for each table from its start/end UTF-16 positions.
-    fn table_rects(&self) -> Vec<NSRect> {
-        let delegate_ref = self.ivars().delegate.borrow();
-        let delegate = match delegate_ref.as_ref() {
-            Some(d) => d,
-            None => return Vec::new(),
-        };
-        let bounds = delegate.table_bounds();
-        if bounds.is_empty() {
+    /// Compute the bounding rect for each table from its `TableGrid` bounds.
+    fn table_rects_from_grids(
+        &self,
+        grids: &[TableGrid],
+    ) -> Vec<NSRect> {
+        if grids.is_empty() {
             return Vec::new();
         }
 
@@ -452,7 +439,8 @@ impl MditTextView {
         let null_ptr = std::ptr::null_mut::<objc2_foundation::NSRange>();
 
         let mut result = Vec::new();
-        for &(start_u16, end_u16) in &bounds {
+        for grid in grids {
+            let (start_u16, end_u16) = grid.bounds;
             if start_u16 >= end_u16 {
                 continue;
             }
@@ -495,20 +483,19 @@ impl MditTextView {
     /// Draw rounded-rect background fills for all tables.
     /// Called from drawViewBackgroundInRect: — BEFORE glyphs.
     fn draw_table_fills(&self) {
-        let rects = self.table_rects();
+        let delegate_ref = self.ivars().delegate.borrow();
+        let delegate = match delegate_ref.as_ref() {
+            Some(d) => d,
+            None => return,
+        };
+        let grids = delegate.table_grids();
+        let rects = self.table_rects_from_grids(&grids);
         if rects.is_empty() {
             return;
         }
-        let fill_color = {
-            let delegate_ref = self.ivars().delegate.borrow();
-            match delegate_ref.as_ref() {
-                Some(d) => {
-                    let (r, g, b) = d.scheme().table_bg;
-                    NSColor::colorWithRed_green_blue_alpha(r, g, b, 1.0)
-                }
-                None => return,
-            }
-        };
+        let (r, g, b) = delegate.scheme().table_bg;
+        drop(delegate_ref);
+        let fill_color = NSColor::colorWithRed_green_blue_alpha(r, g, b, 1.0);
         for block_rect in &rects {
             let path =
                 NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(*block_rect, 6.0, 6.0);
@@ -520,7 +507,14 @@ impl MditTextView {
     /// Draw rounded-rect border strokes for all tables.
     /// Called from drawRect: — AFTER glyphs (overlay).
     fn draw_table_borders(&self) {
-        let rects = self.table_rects();
+        let delegate_ref = self.ivars().delegate.borrow();
+        let delegate = match delegate_ref.as_ref() {
+            Some(d) => d,
+            None => return,
+        };
+        let grids = delegate.table_grids();
+        drop(delegate_ref);
+        let rects = self.table_rects_from_grids(&grids);
         for block_rect in &rects {
             let border_path =
                 NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(*block_rect, 6.0, 6.0);
