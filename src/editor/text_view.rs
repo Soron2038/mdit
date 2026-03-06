@@ -297,7 +297,21 @@ impl MditTextView {
         let x_start = tc_origin.x;
         let x_end = x_start + container_size.width;
 
-        let sep_color = NSColor::separatorColor();
+        // Clip to table border rects so lines don't extend beyond rounded corners.
+        let table_rects = self.table_rects();
+        let clipping = !table_rects.is_empty();
+        if clipping {
+            let ctx_cls = objc2::runtime::AnyClass::get(c"NSGraphicsContext").unwrap();
+            let _: () = unsafe { msg_send![ctx_cls, saveGraphicsState] };
+            let clip_path = NSBezierPath::bezierPath();
+            for rect in &table_rects {
+                let rounded = NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(*rect, 6.0, 6.0);
+                clip_path.appendBezierPath(&rounded);
+            }
+            clip_path.addClip();
+        }
+
+        let sep_color = NSColor::tertiaryLabelColor();
         sep_color.setFill();
 
         for &utf16_pos in &positions {
@@ -322,10 +336,15 @@ impl MditTextView {
             // Draw at the top of the line fragment (= boundary between rows).
             let y = frag_rect.origin.y + tc_origin.y;
             let line_rect = NSRect::new(
-                NSPoint::new(x_start, y - 0.25),
-                NSSize::new(x_end - x_start, 0.5),
+                NSPoint::new(x_start, y - 0.5),
+                NSSize::new(x_end - x_start, 1.0),
             );
             NSRectFill(line_rect);
+        }
+
+        if clipping {
+            let ctx_cls = objc2::runtime::AnyClass::get(c"NSGraphicsContext").unwrap();
+            let _: () = unsafe { msg_send![ctx_cls, restoreGraphicsState] };
         }
     }
 
@@ -348,7 +367,21 @@ impl MditTextView {
 
         let tc_origin = self.textContainerOrigin();
 
-        let sep_color = NSColor::separatorColor();
+        // Clip to table border rects.
+        let table_rects = self.table_rects();
+        let clipping = !table_rects.is_empty();
+        if clipping {
+            let ctx_cls = objc2::runtime::AnyClass::get(c"NSGraphicsContext").unwrap();
+            let _: () = unsafe { msg_send![ctx_cls, saveGraphicsState] };
+            let clip_path = NSBezierPath::bezierPath();
+            for rect in &table_rects {
+                let rounded = NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(*rect, 6.0, 6.0);
+                clip_path.appendBezierPath(&rounded);
+            }
+            clip_path.addClip();
+        }
+
+        let sep_color = NSColor::tertiaryLabelColor();
         sep_color.setFill();
 
         let null_ptr = std::ptr::null_mut::<objc2_foundation::NSRange>();
@@ -381,10 +414,15 @@ impl MditTextView {
             let y_bottom = y_top + frag_rect.size.height;
 
             let line_rect = NSRect::new(
-                NSPoint::new(x - 0.25, y_top),
-                NSSize::new(0.5, y_bottom - y_top),
+                NSPoint::new(x - 0.5, y_top),
+                NSSize::new(1.0, y_bottom - y_top),
             );
             NSRectFill(line_rect);
+        }
+
+        if clipping {
+            let ctx_cls = objc2::runtime::AnyClass::get(c"NSGraphicsContext").unwrap();
+            let _: () = unsafe { msg_send![ctx_cls, restoreGraphicsState] };
         }
     }
 
