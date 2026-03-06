@@ -62,18 +62,27 @@ fn collect_recursive(spans: &[MarkdownSpan], text: &str, out: &mut Vec<CodeBlock
 // Layout positions computed during attribute application
 // ---------------------------------------------------------------------------
 
+/// Per-table grid data for drawing continuous grid lines.
+#[derive(Debug, Clone)]
+pub struct TableGrid {
+    /// UTF-16 positions of inner column pipes (from header row).
+    /// Excludes first/last pipe (those are the border).
+    pub column_seps: Vec<usize>,
+    /// UTF-16 positions of each body row start.
+    /// Line at top of each body row = boundary to the row above.
+    pub row_seps: Vec<usize>,
+    /// Table bounding positions (start_utf16, end_utf16).
+    pub bounds: (usize, usize),
+}
+
 /// Positions of elements that need custom drawing in the text view.
 pub struct LayoutPositions {
     /// UTF-16 offsets of H1/H2 heading paragraph starts (separator lines).
     pub heading_seps: Vec<usize>,
     /// UTF-16 offsets of thematic breaks (horizontal rules).
     pub thematic_breaks: Vec<usize>,
-    /// UTF-16 offsets of table row boundaries (horizontal separator lines).
-    pub table_h_seps: Vec<usize>,
-    /// UTF-16 offsets of table pipe characters (vertical separator lines).
-    pub table_pipe_seps: Vec<usize>,
-    /// Per-table bounding positions: (start_utf16, end_utf16).
-    pub table_bounds: Vec<(usize, usize)>,
+    /// Per-table grid data for drawing grid lines and borders.
+    pub table_grids: Vec<TableGrid>,
 }
 
 // ---------------------------------------------------------------------------
@@ -100,9 +109,7 @@ pub fn apply_attribute_runs(
         return LayoutPositions {
             heading_seps: Vec::new(),
             thematic_breaks: Vec::new(),
-            table_h_seps: Vec::new(),
-            table_pipe_seps: Vec::new(),
-            table_bounds: Vec::new(),
+            table_grids: Vec::new(),
         };
     }
 
@@ -139,9 +146,6 @@ pub fn apply_attribute_runs(
     // ── Per-run overrides ─────────────────────────────────────────────────
     let mut heading_sep_positions: Vec<usize> = Vec::new();
     let mut thematic_break_positions: Vec<usize> = Vec::new();
-    let mut table_h_sep_positions: Vec<usize> = Vec::new();
-    let mut table_pipe_sep_positions: Vec<usize> = Vec::new();
-
     for run in runs {
         let start_u16 = byte_to_utf16(text, run.range.0);
         let end_u16 = byte_to_utf16(text, run.range.1);
@@ -174,30 +178,35 @@ pub fn apply_attribute_runs(
         if run.attrs.contains(&TextAttribute::ThematicBreak) {
             thematic_break_positions.push(start_u16);
         }
-        if run.attrs.contains(&TextAttribute::TableSeparatorLine) {
-            table_h_sep_positions.push(start_u16);
-        }
-        if run.attrs.contains(&TextAttribute::TablePipe) {
-            table_pipe_sep_positions.push(start_u16);
-            // Add 10px left padding: kern on the pipe pushes the next character right.
-            let kern_value = NSNumber::numberWithFloat(10.0);
-            unsafe {
-                storage.addAttribute_value_range(
-                    NSKernAttributeName,
-                    kern_value.as_ref(),
-                    range,
-                );
-            }
-        }
     }
 
-    // ── Equalize table column widths + collect table bounds ────────────────
-    let mut table_bounds: Vec<(usize, usize)> = Vec::new();
+    // ── Compute per-table grid data ──────────────────────────────────────
+    let mut table_grids: Vec<TableGrid> = Vec::new();
     for table_info in table_infos {
+        let start_u16 = byte_to_utf16(text, table_info.source_range.0);
+        let end_u16 = byte_to_utf16(text, table_info.source_range.1);
+        let bounds = (start_u16, end_u16);
+
         if !table_info.cursor_inside {
+            // Apply kern (10px left padding) to every pipe character.
+            for row_pipes in &table_info.row_pipes {
+                for &pipe_pos in row_pipes {
+                    let u16_pos = byte_to_utf16(text, pipe_pos);
+                    let range = NSRange { location: u16_pos, length: 1 };
+                    let kern_value = NSNumber::numberWithFloat(10.0);
+                    unsafe {
+                        storage.addAttribute_value_range(
+                            NSKernAttributeName,
+                            kern_value.as_ref(),
+                            range,
+                        );
+                    }
+                }
+            }
+
             equalize_table_columns(storage, text, &table_info.row_pipes);
 
-            // Apply vertical padding to each table row.
+            // Apply vertical padding to each data row.
             for &(row_start, row_end) in &table_info.row_ranges {
                 let row_start_u16 = byte_to_utf16(text, row_start);
                 let row_end_u16 = byte_to_utf16(text, row_end);
@@ -214,18 +223,70 @@ pub fn apply_attribute_runs(
                     );
                 }
             }
+
+            // Collapse the separator row (between header and first body row).
+            if table_info.row_ranges.len() >= 2 {
+                let sep_start = table_info.row_ranges[0].1;
+                let sep_end = table_info.row_ranges[1].0;
+                if sep_start < sep_end {
+                    let sep_start_u16 = byte_to_utf16(text, sep_start);
+                    let sep_end_u16 = byte_to_utf16(text, sep_end);
+                    if sep_start_u16 < sep_end_u16 {
+                        let sep_range = NSRange {
+                            location: sep_start_u16,
+                            length: sep_end_u16 - sep_start_u16,
+                        };
+                        let collapsed = make_collapsed_para_style();
+                        unsafe {
+                            storage.addAttribute_value_range(
+                                NSParagraphStyleAttributeName,
+                                collapsed.as_ref(),
+                                sep_range,
+                            );
+                        }
+                    }
+                }
+            }
+
+            // Column separators: inner pipes from header row (skip first/last = border).
+            let column_seps = if let Some(first_pipes) = table_info.row_pipes.first() {
+                if first_pipes.len() >= 3 {
+                    first_pipes[1..first_pipes.len() - 1]
+                        .iter()
+                        .map(|&pos| byte_to_utf16(text, pos))
+                        .collect()
+                } else {
+                    Vec::new()
+                }
+            } else {
+                Vec::new()
+            };
+
+            // Row separators: start of each body row (= all rows after header).
+            let row_seps = if table_info.row_ranges.len() >= 2 {
+                table_info.row_ranges[1..]
+                    .iter()
+                    .map(|&(start, _)| byte_to_utf16(text, start))
+                    .collect()
+            } else {
+                Vec::new()
+            };
+
+            table_grids.push(TableGrid { column_seps, row_seps, bounds });
+        } else {
+            // Cursor inside: only bounds for border, no grid lines.
+            table_grids.push(TableGrid {
+                column_seps: Vec::new(),
+                row_seps: Vec::new(),
+                bounds,
+            });
         }
-        let start_u16 = byte_to_utf16(text, table_info.source_range.0);
-        let end_u16 = byte_to_utf16(text, table_info.source_range.1);
-        table_bounds.push((start_u16, end_u16));
     }
 
     LayoutPositions {
         heading_seps: heading_sep_positions,
         thematic_breaks: thematic_break_positions,
-        table_h_seps: table_h_sep_positions,
-        table_pipe_seps: table_pipe_sep_positions,
-        table_bounds,
+        table_grids,
     }
 }
 
@@ -304,9 +365,7 @@ fn apply_attr_set(
             | TextAttribute::BlockquoteBar
             | TextAttribute::LineSpacing(_)
             | TextAttribute::HeadingSeparator
-            | TextAttribute::ThematicBreak
-            | TextAttribute::TableSeparatorLine
-            | TextAttribute::TablePipe => {}
+            | TextAttribute::ThematicBreak => {}
         }
     }
 }
@@ -511,6 +570,17 @@ fn make_table_row_para_style(
     style.setLineSpacing(line_spacing);
     style.setParagraphSpacingBefore(spacing_before);
     style.setParagraphSpacing(spacing_after);
+    style
+}
+
+/// Build a paragraph style that collapses a line to near-zero height.
+/// Used for the table separator row (`| --- | --- |`) which must be invisible.
+fn make_collapsed_para_style() -> Retained<NSMutableParagraphStyle> {
+    let style = NSMutableParagraphStyle::new();
+    style.setLineSpacing(0.0);
+    style.setParagraphSpacingBefore(0.0);
+    style.setParagraphSpacing(0.0);
+    style.setMaximumLineHeight(0.001);
     style
 }
 
