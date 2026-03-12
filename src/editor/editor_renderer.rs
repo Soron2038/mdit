@@ -79,10 +79,10 @@ fn collect_editor_runs(
             runs.push(AttributeRun { range: (end - 1, end), attrs: editor_syntax() });
         }
         NodeKind::CodeBlock { .. } => {
-            // Entire code block in code color.
+            // Entire code block in code color with background.
             runs.push(AttributeRun {
                 range: (start, end),
-                attrs: editor_code(),
+                attrs: editor_code_block(),
             });
         }
         NodeKind::Link { .. } => {
@@ -100,6 +100,40 @@ fn collect_editor_runs(
                 });
             }
             runs.push(AttributeRun { range: (end - m, end), attrs: editor_syntax() });
+        }
+        NodeKind::Highlight => {
+            // "==content==" — markers in syntax color, content with highlight background.
+            let m = 2.min(end - start);
+            runs.push(AttributeRun { range: (start, start + m), attrs: editor_syntax() });
+            if start + m < end.saturating_sub(m) {
+                runs.push(AttributeRun {
+                    range: (start + m, end - m),
+                    attrs: editor_highlight(),
+                });
+            }
+            runs.push(AttributeRun { range: (end - m, end), attrs: editor_syntax() });
+        }
+        NodeKind::Subscript => {
+            // "~content~" — markers in syntax color, content in subscript color.
+            runs.push(AttributeRun { range: (start, start + 1), attrs: editor_syntax() });
+            if start + 1 < end.saturating_sub(1) {
+                runs.push(AttributeRun {
+                    range: (start + 1, end - 1),
+                    attrs: editor_subscript(),
+                });
+            }
+            runs.push(AttributeRun { range: (end - 1, end), attrs: editor_syntax() });
+        }
+        NodeKind::Superscript => {
+            // "^content^" — markers in syntax color, content in superscript color.
+            runs.push(AttributeRun { range: (start, start + 1), attrs: editor_syntax() });
+            if start + 1 < end.saturating_sub(1) {
+                runs.push(AttributeRun {
+                    range: (start + 1, end - 1),
+                    attrs: editor_superscript(),
+                });
+            }
+            runs.push(AttributeRun { range: (end - 1, end), attrs: editor_syntax() });
         }
         NodeKind::BlockQuote => {
             runs.push(AttributeRun {
@@ -226,6 +260,7 @@ fn editor_bold() -> AttributeSet {
     AttributeSet::new(vec![
         TextAttribute::Monospace,
         TextAttribute::Bold,
+        TextAttribute::ForegroundColor("bold"),
     ])
 }
 
@@ -233,6 +268,7 @@ fn editor_italic() -> AttributeSet {
     AttributeSet::new(vec![
         TextAttribute::Monospace,
         TextAttribute::Italic,
+        TextAttribute::ForegroundColor("italic"),
     ])
 }
 
@@ -240,6 +276,15 @@ fn editor_code() -> AttributeSet {
     AttributeSet::new(vec![
         TextAttribute::Monospace,
         TextAttribute::ForegroundColor("code_fg"),
+        TextAttribute::BackgroundColor("code_bg"),
+    ])
+}
+
+fn editor_code_block() -> AttributeSet {
+    AttributeSet::new(vec![
+        TextAttribute::Monospace,
+        TextAttribute::ForegroundColor("code_fg"),
+        TextAttribute::BackgroundColor("code_block_bg"),
     ])
 }
 
@@ -255,6 +300,27 @@ fn editor_strikethrough() -> AttributeSet {
         TextAttribute::Monospace,
         TextAttribute::Strikethrough,
         TextAttribute::ForegroundColor("strikethrough"),
+    ])
+}
+
+fn editor_highlight() -> AttributeSet {
+    AttributeSet::new(vec![
+        TextAttribute::Monospace,
+        TextAttribute::BackgroundColor("highlight_bg"),
+    ])
+}
+
+fn editor_subscript() -> AttributeSet {
+    AttributeSet::new(vec![
+        TextAttribute::Monospace,
+        TextAttribute::ForegroundColor("subscript"),
+    ])
+}
+
+fn editor_superscript() -> AttributeSet {
+    AttributeSet::new(vec![
+        TextAttribute::Monospace,
+        TextAttribute::ForegroundColor("superscript"),
     ])
 }
 

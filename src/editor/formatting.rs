@@ -48,7 +48,7 @@ pub fn set_block_format(line: &str, desired: &str) -> String {
 // ---------------------------------------------------------------------------
 
 /// Known symmetric inline markers, longest first to avoid partial matches.
-const KNOWN_MARKERS: &[&str] = &["**", "~~", "`", "_"];
+const KNOWN_MARKERS: &[&str] = &["**", "~~", "==", "`", "_", "~", "^"];
 
 /// Scan for matching marker layers surrounding a selection.
 ///
@@ -186,7 +186,16 @@ pub fn compute_inline_toggle(
             InlineToggleResult { replacement, consumed_before: 0, consumed_after: 0 }
         } else {
             // Case 3: marker absent — wrap the selection.
-            let replacement = format!("{}{}{}", marker, selected, marker);
+            // Trim whitespace so markers are adjacent to content
+            // (CommonMark requires no space between marker and text).
+            let content = selected.trim();
+            let replacement = if content.is_empty() {
+                format!("{}{}{}", marker, selected, marker)
+            } else {
+                let leading = &selected[..selected.len() - selected.trim_start().len()];
+                let trailing = &selected[selected.trim_end().len()..];
+                format!("{}{}{}{}{}", leading, marker, content, marker, trailing)
+            };
             InlineToggleResult { replacement, consumed_before: 0, consumed_after: 0 }
         }
     }

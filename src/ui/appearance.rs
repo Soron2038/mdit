@@ -4,6 +4,8 @@ pub struct ColorScheme {
     pub text: (f64, f64, f64),
     pub background: (f64, f64, f64),
     pub heading: (f64, f64, f64),
+    pub bold: (f64, f64, f64),
+    pub italic: (f64, f64, f64),
     pub link: (f64, f64, f64),
     pub code_bg: (f64, f64, f64),
     pub code_fg: (f64, f64, f64),
@@ -13,6 +15,9 @@ pub struct ColorScheme {
     pub strikethrough: (f64, f64, f64),
     pub blockquote: (f64, f64, f64),
     pub list_marker: (f64, f64, f64),
+    pub highlight_bg: (f64, f64, f64),
+    pub subscript: (f64, f64, f64),
+    pub superscript: (f64, f64, f64),
 }
 
 impl ColorScheme {
@@ -20,16 +25,21 @@ impl ColorScheme {
         Self {
             text:          (0.10, 0.10, 0.10),
             background:    (0.98, 0.98, 0.98),
-            heading:       (0.10, 0.10, 0.10),
+            heading:       (0.15, 0.25, 0.60),
+            bold:          (0.75, 0.40, 0.00),
+            italic:        (0.55, 0.20, 0.65),
             link:          (0.10, 0.40, 0.80),
-            code_bg:       (0.94, 0.94, 0.96),
-            code_fg:       (0.20, 0.20, 0.20),
+            code_bg:       (0.93, 0.94, 0.96),
+            code_fg:       (0.00, 0.45, 0.45),
             code_block_bg: (0.93, 0.93, 0.95),
             table_bg:      (0.93, 0.93, 0.95),
-            syntax_marker: (0.70, 0.70, 0.70),
+            syntax_marker: (0.55, 0.55, 0.60),
             strikethrough: (0.50, 0.50, 0.50),
-            blockquote:    (0.40, 0.40, 0.50),
-            list_marker:   (0.30, 0.30, 0.40),
+            blockquote:    (0.30, 0.50, 0.55),
+            list_marker:   (0.40, 0.30, 0.60),
+            highlight_bg:  (1.00, 0.95, 0.55),
+            subscript:     (0.30, 0.50, 0.55),
+            superscript:   (0.30, 0.50, 0.55),
         }
     }
 
@@ -37,16 +47,21 @@ impl ColorScheme {
         Self {
             text:          (0.92, 0.92, 0.92),
             background:    (0.11, 0.11, 0.12),
-            heading:       (0.95, 0.95, 0.95),
+            heading:       (0.55, 0.70, 1.00),
+            bold:          (1.00, 0.70, 0.30),
+            italic:        (0.80, 0.55, 0.95),
             link:          (0.40, 0.70, 1.00),
             code_bg:       (0.17, 0.17, 0.18),
-            code_fg:       (0.85, 0.85, 0.85),
+            code_fg:       (0.40, 0.85, 0.75),
             code_block_bg: (0.16, 0.16, 0.17),
             table_bg:      (0.16, 0.16, 0.17),
-            syntax_marker: (0.40, 0.40, 0.40),
+            syntax_marker: (0.50, 0.50, 0.55),
             strikethrough: (0.55, 0.55, 0.55),
-            blockquote:    (0.50, 0.55, 0.65),
-            list_marker:   (0.55, 0.60, 0.70),
+            blockquote:    (0.50, 0.70, 0.75),
+            list_marker:   (0.60, 0.55, 0.80),
+            highlight_bg:  (0.55, 0.45, 0.10),
+            subscript:     (0.50, 0.70, 0.75),
+            superscript:   (0.50, 0.70, 0.75),
         }
     }
 
@@ -54,12 +69,16 @@ impl ColorScheme {
     pub fn resolve_fg(&self, token: &str) -> Option<(f64, f64, f64)> {
         match token {
             "heading"      => Some(self.heading),
+            "bold"         => Some(self.bold),
+            "italic"       => Some(self.italic),
             "link"         => Some(self.link),
             "code_fg"      => Some(self.code_fg),
             "syntax"       => Some(self.syntax_marker),
             "strikethrough"=> Some(self.strikethrough),
             "blockquote"   => Some(self.blockquote),
             "list_marker"  => Some(self.list_marker),
+            "subscript"    => Some(self.subscript),
+            "superscript"  => Some(self.superscript),
             _ => None,
         }
     }
@@ -70,6 +89,7 @@ impl ColorScheme {
             "code_bg"      => Some(self.code_bg),
             "code_block_bg"=> Some(self.code_block_bg),
             "table_bg"     => Some(self.table_bg),
+            "highlight_bg" => Some(self.highlight_bg),
             _ => None,
         }
     }
@@ -87,12 +107,16 @@ mod tests {
     fn light_scheme_tokens_resolve() {
         let s = ColorScheme::light();
         assert!(s.resolve_fg("heading").is_some());
+        assert!(s.resolve_fg("bold").is_some());
+        assert!(s.resolve_fg("italic").is_some());
         assert!(s.resolve_fg("link").is_some());
         assert!(s.resolve_fg("code_fg").is_some());
         assert!(s.resolve_fg("syntax").is_some());
         assert!(s.resolve_fg("strikethrough").is_some());
         assert!(s.resolve_fg("blockquote").is_some());
         assert!(s.resolve_fg("list_marker").is_some());
+        assert!(s.resolve_fg("subscript").is_some());
+        assert!(s.resolve_fg("superscript").is_some());
         assert!(s.resolve_fg("unknown").is_none());
     }
 
@@ -101,6 +125,7 @@ mod tests {
         let s = ColorScheme::dark();
         assert!(s.resolve_bg("code_bg").is_some());
         assert!(s.resolve_bg("code_block_bg").is_some());
+        assert!(s.resolve_bg("highlight_bg").is_some());
         assert!(s.resolve_bg("unknown").is_none());
     }
 

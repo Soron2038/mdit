@@ -8,10 +8,11 @@ use objc2::msg_send;
 use objc2_app_kit::{
     NSBackgroundColorAttributeName, NSColor, NSFont, NSFontAttributeName,
     NSFontDescriptorSymbolicTraits, NSFontWeightBold, NSFontWeightRegular,
-    NSForegroundColorAttributeName, NSKernAttributeName, NSMutableParagraphStyle,
-    NSParagraphStyleAttributeName, NSStrikethroughStyleAttributeName, NSTextStorage,
+    NSForegroundColorAttributeName, NSKernAttributeName, NSLinkAttributeName,
+    NSMutableParagraphStyle, NSParagraphStyleAttributeName,
+    NSStrikethroughStyleAttributeName, NSSuperscriptAttributeName, NSTextStorage,
 };
-use objc2_foundation::{NSNumber, NSRange, NSSize};
+use objc2_foundation::{NSNumber, NSRange, NSSize, NSString, NSURL};
 
 use crate::editor::renderer::{AttributeRun, TableInfo};
 use crate::markdown::attributes::{AttributeSet, TextAttribute};
@@ -102,6 +103,7 @@ pub fn apply_attribute_runs(
     text: &str,
     runs: &[AttributeRun],
     table_infos: &[TableInfo],
+    code_block_infos: &[CodeBlockInfo],
     scheme: &ColorScheme,
 ) -> LayoutPositions {
     let text_len_u16 = text.encode_utf16().count();
@@ -141,6 +143,7 @@ pub fn apply_attribute_runs(
         storage.removeAttribute_range(NSBackgroundColorAttributeName, full_range);
         storage.removeAttribute_range(NSStrikethroughStyleAttributeName, full_range);
         storage.removeAttribute_range(NSKernAttributeName, full_range);
+        storage.removeAttribute_range(NSSuperscriptAttributeName, full_range);
     }
 
     // ── Per-run overrides ─────────────────────────────────────────────────
@@ -214,7 +217,7 @@ pub fn apply_attribute_runs(
                     continue;
                 }
                 let row_range = NSRange { location: row_start_u16, length: row_end_u16 - row_start_u16 };
-                let style = make_table_row_para_style(9.6, 10.0, 10.0);
+                let style = make_table_row_para_style(0.0, 10.0, 10.0);
                 unsafe {
                     storage.addAttribute_value_range(
                         NSParagraphStyleAttributeName,
@@ -280,6 +283,25 @@ pub fn apply_attribute_runs(
                 row_seps: Vec::new(),
                 bounds,
             });
+        }
+    }
+
+    // ── Apply horizontal padding (indent) to code blocks ───────────────
+    for info in code_block_infos {
+        if info.start_utf16 >= info.end_utf16 {
+            continue;
+        }
+        let range = NSRange {
+            location: info.start_utf16,
+            length: info.end_utf16 - info.start_utf16,
+        };
+        let style = make_code_block_para_style(9.6, 10.0);
+        unsafe {
+            storage.addAttribute_value_range(
+                NSParagraphStyleAttributeName,
+                style.as_ref(),
+                range,
+            );
         }
     }
 
@@ -358,6 +380,38 @@ fn apply_attr_set(
                     );
                 }
             }
+            TextAttribute::Superscript => {
+                let num = NSNumber::numberWithInteger(1);
+                unsafe {
+                    storage.addAttribute_value_range(
+                        NSSuperscriptAttributeName,
+                        num.as_ref(),
+                        range,
+                    );
+                }
+            }
+            TextAttribute::Subscript => {
+                let num = NSNumber::numberWithInteger(-1);
+                unsafe {
+                    storage.addAttribute_value_range(
+                        NSSuperscriptAttributeName,
+                        num.as_ref(),
+                        range,
+                    );
+                }
+            }
+            TextAttribute::Link(url) => {
+                let ns_str = NSString::from_str(url);
+                if let Some(ns_url) = NSURL::URLWithString(&ns_str) {
+                    unsafe {
+                        storage.addAttribute_value_range(
+                            NSLinkAttributeName,
+                            &ns_url,
+                            range,
+                        );
+                    }
+                }
+            }
             // These attributes are conveyed via color tokens above or handled
             // separately in apply_attribute_runs; no direct NSAttributedString
             // key needed here.
@@ -392,11 +446,20 @@ fn build_font(attrs: &AttributeSet) -> Retained<NSFont> {
     let mono = attrs.contains(&TextAttribute::Monospace);
 
     if mono {
-        // Code font is always regular-weight monospaced.
         let code_size = if size == 16.0 { 14.0 } else { size };
-        return unsafe {
-            NSFont::monospacedSystemFontOfSize_weight(code_size, NSFontWeightRegular)
-        };
+        let weight = unsafe { if bold { NSFontWeightBold } else { NSFontWeightRegular } };
+        let base = NSFont::monospacedSystemFontOfSize_weight(code_size, weight);
+        if italic {
+            let desc = base.fontDescriptor();
+            let mut traits = NSFontDescriptorSymbolicTraits::TraitItalic;
+            if bold {
+                traits = traits | NSFontDescriptorSymbolicTraits::TraitBold;
+            }
+            let italic_desc = desc.fontDescriptorWithSymbolicTraits(traits);
+            return NSFont::fontWithDescriptor_size(&italic_desc, code_size)
+                .unwrap_or(base);
+        }
+        return base;
     }
 
     if bold && italic {
@@ -570,6 +633,19 @@ fn make_table_row_para_style(
     style.setLineSpacing(line_spacing);
     style.setParagraphSpacingBefore(spacing_before);
     style.setParagraphSpacing(spacing_after);
+    style
+}
+
+/// Build an `NSMutableParagraphStyle` for code block content with horizontal padding.
+fn make_code_block_para_style(
+    line_spacing: f64,
+    indent: f64,
+) -> Retained<NSMutableParagraphStyle> {
+    let style = NSMutableParagraphStyle::new();
+    style.setLineSpacing(line_spacing);
+    style.setHeadIndent(indent);
+    style.setFirstLineHeadIndent(indent);
+    style.setTailIndent(-indent); // negative = inset from trailing margin
     style
 }
 

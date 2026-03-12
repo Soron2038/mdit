@@ -20,6 +20,12 @@ cargo build --release --manifest-path "$ROOT/Cargo.toml"
 echo "→ Updating app bundle…"
 cp "$ROOT/target/release/$APP_NAME" \
    "$ROOT/dist/$APP_NAME.app/Contents/MacOS/$APP_NAME"
+cp "$ROOT/ressources/Info.plist" \
+   "$ROOT/dist/$APP_NAME.app/Contents/Info.plist"
+cp "$ROOT/ressources/mdit-app-icon.icns" \
+   "$ROOT/dist/$APP_NAME.app/Contents/Resources/mdit-app-icon.icns"
+# Clean up old icon name if present
+rm -f "$ROOT/dist/$APP_NAME.app/Contents/Resources/AppIcon.icns"
 
 echo "→ Creating DMG staging area…"
 STAGING=$(mktemp -d)

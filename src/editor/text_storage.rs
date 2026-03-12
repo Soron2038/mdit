@@ -90,8 +90,9 @@ define_class!(
                     compute_editor_runs(&text, &spans)
                 };
                 let empty_tables = Vec::new();
+                let empty_infos = Vec::new();
                 let _ = apply_attribute_runs(
-                    text_storage, &text, &runs, &empty_tables, &scheme,
+                    text_storage, &text, &runs, &empty_tables, &empty_infos, &scheme,
                 );
                 self.ivars().applying.set(false);
                 // Clear drawing positions — no custom drawing in editor mode.
@@ -106,17 +107,17 @@ define_class!(
                     let spans = self.ivars().spans.borrow();
                     compute_attribute_runs(&text, &spans, cursor_pos)
                 };
+                let infos = {
+                    let spans_ref = self.ivars().spans.borrow();
+                    collect_code_block_infos(&spans_ref, &text)
+                };
                 let positions = apply_attribute_runs(
-                    text_storage, &text, &output.runs, &output.table_infos, &scheme,
+                    text_storage, &text, &output.runs, &output.table_infos, &infos, &scheme,
                 );
                 self.ivars().applying.set(false);
                 *self.ivars().heading_sep_positions.borrow_mut() = positions.heading_seps;
                 *self.ivars().thematic_break_positions.borrow_mut() = positions.thematic_breaks;
                 *self.ivars().table_grids.borrow_mut() = positions.table_grids;
-                let infos = {
-                    let spans_ref = self.ivars().spans.borrow();
-                    collect_code_block_infos(&spans_ref, &text)
-                };
                 *self.ivars().code_block_infos.borrow_mut() = infos;
             }
         }
@@ -193,7 +194,8 @@ impl MditEditorDelegate {
                 compute_editor_runs(&text, &spans)
             };
             let empty_tables = Vec::new();
-            let _ = apply_attribute_runs(storage, &text, &runs, &empty_tables, &scheme);
+            let empty_infos = Vec::new();
+            let _ = apply_attribute_runs(storage, &text, &runs, &empty_tables, &empty_infos, &scheme);
             self.ivars().applying.set(false);
             self.ivars().heading_sep_positions.borrow_mut().clear();
             self.ivars().thematic_break_positions.borrow_mut().clear();
@@ -205,17 +207,17 @@ impl MditEditorDelegate {
                 let spans = self.ivars().spans.borrow();
                 compute_attribute_runs(&text, &spans, cursor_pos)
             };
+            let infos = {
+                let spans_ref = self.ivars().spans.borrow();
+                collect_code_block_infos(&spans_ref, &text)
+            };
             let positions = apply_attribute_runs(
-                storage, &text, &output.runs, &output.table_infos, &scheme,
+                storage, &text, &output.runs, &output.table_infos, &infos, &scheme,
             );
             self.ivars().applying.set(false);
             *self.ivars().heading_sep_positions.borrow_mut() = positions.heading_seps;
             *self.ivars().thematic_break_positions.borrow_mut() = positions.thematic_breaks;
             *self.ivars().table_grids.borrow_mut() = positions.table_grids;
-            let infos = {
-                let spans_ref = self.ivars().spans.borrow();
-                collect_code_block_infos(&spans_ref, &text)
-            };
             *self.ivars().code_block_infos.borrow_mut() = infos;
         }
     }

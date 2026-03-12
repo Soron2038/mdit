@@ -20,6 +20,9 @@ pub enum NodeKind {
     TableCell,
     Footnote,
     Strikethrough,
+    Highlight,
+    Subscript,
+    Superscript,
     Image { url: String },
     List,
     Item,
@@ -48,6 +51,9 @@ fn make_options() -> Options<'static> {
     opts.extension.table = true;
     opts.extension.footnotes = true;
     opts.extension.math_dollars = true;
+    opts.extension.highlight = true;
+    opts.extension.subscript = true;
+    opts.extension.superscript = true;
     opts
 }
 
@@ -131,6 +137,9 @@ fn node_to_span<'a>(
         NodeValue::TableCell => NodeKind::TableCell,
         NodeValue::FootnoteDefinition(_) | NodeValue::FootnoteReference(_) => NodeKind::Footnote,
         NodeValue::Strikethrough => NodeKind::Strikethrough,
+        NodeValue::Highlight => NodeKind::Highlight,
+        NodeValue::Subscript => NodeKind::Subscript,
+        NodeValue::Superscript => NodeKind::Superscript,
         NodeValue::List(_) => NodeKind::List,
         NodeValue::Item(_) => NodeKind::Item,
         NodeValue::BlockQuote => NodeKind::BlockQuote,

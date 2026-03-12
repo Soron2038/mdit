@@ -1,4 +1,5 @@
 use std::cell::{OnceCell, RefCell};
+use std::path::PathBuf;
 
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, ProtocolObject};
@@ -40,6 +41,8 @@ struct AppDelegateIvars {
     tab_bar: OnceCell<TabBar>,
     path_bar: OnceCell<PathBar>,
     tab_manager: RefCell<TabManager>,
+    /// File path received via `application:openFile:` before the window exists.
+    pending_open: RefCell<Option<PathBuf>>,
 }
 
 define_class!(
@@ -108,10 +111,26 @@ define_class!(
             #[allow(deprecated)]
             app.activateIgnoringOtherApps(true);
 
-            // First empty tab (sets scheme and inset)
+            // Open pending file or start with an empty tab.
+            let pending = self.ivars().pending_open.borrow_mut().take();
             self.add_empty_tab();
             self.apply_scheme(initial_scheme);
+            if let Some(path) = pending {
+                self.open_file_by_path(path);
+            }
             self.update_text_container_inset();
+        }
+
+        #[unsafe(method(application:openFile:))]
+        fn open_file(&self, _sender: &NSApplication, filename: &NSString) -> bool {
+            let path = PathBuf::from(filename.to_string());
+            if self.ivars().window.get().is_none() {
+                // Called before applicationDidFinishLaunching: — stash for later.
+                *self.ivars().pending_open.borrow_mut() = Some(path);
+            } else {
+                self.open_file_by_path(path);
+            }
+            true
         }
 
         #[unsafe(method(applicationShouldTerminateAfterLastWindowClosed:))]
@@ -249,46 +268,7 @@ define_class!(
             let Some(ns_url) = ns_url else { return };
             let Some(ns_path) = ns_url.path() else { return };
             let path = std::path::PathBuf::from(ns_path.to_string());
-
-            // Check if already open
-            {
-                let tm = self.ivars().tab_manager.borrow();
-                if let Some(i) = tm.find_by_path(&path) {
-                    drop(tm);
-                    self.switch_to_tab(i);
-                    return;
-                }
-            }
-
-            let content = match std::fs::read_to_string(&path) {
-                Ok(s) => s,
-                Err(e) => {
-                    eprintln!("mdit: cannot read {:?}: {}", path, e);
-                    return;
-                }
-            };
-
-            self.add_empty_tab();
-            {
-                let tm = self.ivars().tab_manager.borrow();
-                if let Some(t) = tm.active() {
-                    *t.url.borrow_mut() = Some(path.clone());
-                    t.is_dirty.set(false);
-                    unsafe {
-                        if let Some(storage) = t.text_view.textStorage() {
-                            let full = NSRange { location: 0, length: storage.length() };
-                            storage.replaceCharactersInRange_withString(
-                                full,
-                                &NSString::from_str(&content),
-                            );
-                        }
-                    }
-                }
-            }
-            if let Some(pb) = self.ivars().path_bar.get() {
-                pb.update(Some(path.as_path()));
-            }
-            self.rebuild_tab_bar();
+            self.open_file_by_path(path);
         }
 
         #[unsafe(method(saveDocument:))]
@@ -476,6 +456,61 @@ impl AppDelegate {
         }
 
         self.update_text_container_inset();
+    }
+
+    /// Open a file by path — used by both the Open dialog and Finder/Dock open events.
+    fn open_file_by_path(&self, path: std::path::PathBuf) {
+        // Check if already open → switch to that tab
+        {
+            let tm = self.ivars().tab_manager.borrow();
+            if let Some(i) = tm.find_by_path(&path) {
+                drop(tm);
+                self.switch_to_tab(i);
+                return;
+            }
+        }
+
+        let content = match std::fs::read_to_string(&path) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("mdit: cannot read {:?}: {}", path, e);
+                return;
+            }
+        };
+
+        // Reuse the active tab if it's a pristine empty tab, otherwise create a new one.
+        let reuse = {
+            let tm = self.ivars().tab_manager.borrow();
+            tm.active().map_or(false, |t| {
+                !t.is_dirty.get()
+                    && t.url.borrow().is_none()
+                    && unsafe { t.text_view.textStorage() }
+                        .map_or(true, |s| s.length() == 0)
+            })
+        };
+        if !reuse {
+            self.add_empty_tab();
+        }
+        {
+            let tm = self.ivars().tab_manager.borrow();
+            if let Some(t) = tm.active() {
+                *t.url.borrow_mut() = Some(path.clone());
+                t.is_dirty.set(false);
+                unsafe {
+                    if let Some(storage) = t.text_view.textStorage() {
+                        let full = NSRange { location: 0, length: storage.length() };
+                        storage.replaceCharactersInRange_withString(
+                            full,
+                            &NSString::from_str(&content),
+                        );
+                    }
+                }
+            }
+        }
+        if let Some(pb) = self.ivars().path_bar.get() {
+            pb.update(Some(path.as_path()));
+        }
+        self.rebuild_tab_bar();
     }
 
     /// Active text view for formatting actions.

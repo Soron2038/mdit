@@ -386,6 +386,152 @@ fn inline_toggle_add_code_to_plain() {
     });
 }
 
+// ── whitespace trimming in inline toggle ───────────────────────────────
+
+#[test]
+fn inline_toggle_trims_surrounding_whitespace() {
+    let r = compute_inline_toggle(" Zwei ", "Eins", "Drei", "**");
+    assert_eq!(r, InlineToggleResult {
+        replacement: " **Zwei** ".into(),
+        consumed_before: 0,
+        consumed_after: 0,
+    });
+}
+
+#[test]
+fn inline_toggle_trims_leading_whitespace_only() {
+    let r = compute_inline_toggle("  hello", "x", "x", "**");
+    assert_eq!(r, InlineToggleResult {
+        replacement: "  **hello**".into(),
+        consumed_before: 0,
+        consumed_after: 0,
+    });
+}
+
+#[test]
+fn inline_toggle_trims_trailing_whitespace_only() {
+    let r = compute_inline_toggle("hello  ", "x", "x", "**");
+    assert_eq!(r, InlineToggleResult {
+        replacement: "**hello**  ".into(),
+        consumed_before: 0,
+        consumed_after: 0,
+    });
+}
+
+#[test]
+fn inline_toggle_all_whitespace_no_trim() {
+    let r = compute_inline_toggle("   ", "x", "x", "**");
+    assert_eq!(r, InlineToggleResult {
+        replacement: "**   **".into(),
+        consumed_before: 0,
+        consumed_after: 0,
+    });
+}
+
+// ── highlight / subscript / superscript markers ────────────────────────
+
+#[test]
+fn highlight_markers_around() {
+    let (layers, pre, post) = find_surrounding_markers("==", "==");
+    assert_eq!(layers, vec!["=="]);
+    assert_eq!(pre, 2);
+    assert_eq!(post, 2);
+}
+
+#[test]
+fn subscript_markers_around() {
+    let (layers, pre, post) = find_surrounding_markers("~", "~");
+    assert_eq!(layers, vec!["~"]);
+    assert_eq!(pre, 1);
+    assert_eq!(post, 1);
+}
+
+#[test]
+fn superscript_markers_around() {
+    let (layers, pre, post) = find_surrounding_markers("^", "^");
+    assert_eq!(layers, vec!["^"]);
+    assert_eq!(pre, 1);
+    assert_eq!(post, 1);
+}
+
+#[test]
+fn strikethrough_not_confused_with_subscript() {
+    // "~~" should match strikethrough, not two subscripts
+    let (layers, pre, post) = find_surrounding_markers("~~", "~~");
+    assert_eq!(layers, vec!["~~"]);
+    assert_eq!(pre, 2);
+    assert_eq!(post, 2);
+}
+
+#[test]
+fn peel_highlight() {
+    let (layers, inner) = peel_inline_markers("==hello==");
+    assert_eq!(layers, vec!["=="]);
+    assert_eq!(inner, "hello");
+}
+
+#[test]
+fn peel_subscript() {
+    let (layers, inner) = peel_inline_markers("~hello~");
+    assert_eq!(layers, vec!["~"]);
+    assert_eq!(inner, "hello");
+}
+
+#[test]
+fn peel_superscript() {
+    let (layers, inner) = peel_inline_markers("^hello^");
+    assert_eq!(layers, vec!["^"]);
+    assert_eq!(inner, "hello");
+}
+
+#[test]
+fn inline_toggle_add_highlight() {
+    let r = compute_inline_toggle("hello", "text ", " world", "==");
+    assert_eq!(r, InlineToggleResult {
+        replacement: "==hello==".into(),
+        consumed_before: 0,
+        consumed_after: 0,
+    });
+}
+
+#[test]
+fn inline_toggle_remove_highlight() {
+    let r = compute_inline_toggle("hello", "==", "==", "==");
+    assert_eq!(r, InlineToggleResult {
+        replacement: "hello".into(),
+        consumed_before: 2,
+        consumed_after: 2,
+    });
+}
+
+#[test]
+fn inline_toggle_add_subscript() {
+    let r = compute_inline_toggle("2", "H", "O", "~");
+    assert_eq!(r, InlineToggleResult {
+        replacement: "~2~".into(),
+        consumed_before: 0,
+        consumed_after: 0,
+    });
+}
+
+#[test]
+fn inline_toggle_add_superscript() {
+    let r = compute_inline_toggle("2", "x", " ", "^");
+    assert_eq!(r, InlineToggleResult {
+        replacement: "^2^".into(),
+        consumed_before: 0,
+        consumed_after: 0,
+    });
+}
+
+#[test]
+fn find_highlight_and_bold_nested() {
+    let (layers, pre, post) = find_surrounding_markers("**==", "==**");
+    assert_eq!(layers, vec!["==", "**"]);
+    assert_eq!(pre, 4);
+    assert_eq!(post, 4);
+}
+
 // ── compute_link_wrap ──────────────────────────────────────────────────
 
 #[test]

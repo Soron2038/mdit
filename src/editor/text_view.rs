@@ -189,7 +189,7 @@ impl MditTextView {
         // The content-before check is performed once at attribute-application
         // time (in apply_attribute_runs), so every position in this list needs
         // a separator line — no String allocation required at draw time.
-        let sep_color = NSColor::separatorColor();
+        let sep_color = NSColor::tertiaryLabelColor();
         sep_color.setFill();
 
         for &utf16_pos in &positions {
@@ -218,10 +218,9 @@ impl MditTextView {
             // top of the heading's first line fragment.
             let y = frag_rect.origin.y + tc_origin.y - 10.0;
 
-            // Draw as a filled 0.5pt rect (= 1 physical pixel on Retina).
             let line_rect = NSRect::new(
-                NSPoint::new(x_start, y - 0.25),
-                NSSize::new(x_end - x_start, 0.5),
+                NSPoint::new(x_start, y - 0.5),
+                NSSize::new(x_end - x_start, 1.0),
             );
             NSRectFill(line_rect);
         }
@@ -252,7 +251,7 @@ impl MditTextView {
         let x_start = tc_origin.x;
         let x_end = x_start + container_size.width;
 
-        let sep_color = NSColor::separatorColor();
+        let sep_color = NSColor::tertiaryLabelColor();
         sep_color.setFill();
 
         for &utf16_pos in &positions {
@@ -278,8 +277,8 @@ impl MditTextView {
             let y = frag_rect.origin.y + tc_origin.y + frag_rect.size.height / 2.0;
 
             let line_rect = NSRect::new(
-                NSPoint::new(x_start, y - 0.25),
-                NSSize::new(x_end - x_start, 0.5),
+                NSPoint::new(x_start, y - 0.5),
+                NSSize::new(x_end - x_start, 1.0),
             );
             NSRectFill(line_rect);
         }
@@ -601,9 +600,9 @@ impl MditTextView {
                 continue;
             }
 
-            // ── Build full-width block rect (8pt vertical padding) ────────────
-            let block_y = top_frag.origin.y + tc_origin.y - 8.0;
-            let block_bottom = bot_frag.origin.y + bot_frag.size.height + tc_origin.y + 8.0;
+            // ── Build full-width block rect (10pt vertical padding) ───────────
+            let block_y = top_frag.origin.y + tc_origin.y - 10.0;
+            let block_bottom = bot_frag.origin.y + bot_frag.size.height + tc_origin.y + 10.0;
             let block_rect = NSRect::new(
                 NSPoint::new(tc_origin.x, block_y),
                 NSSize::new(container_width, block_bottom - block_y),
@@ -672,7 +671,7 @@ impl MditTextView {
         let border_path =
             NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(block_rect, 6.0, 6.0);
         border_path.setLineWidth(1.0);
-        NSColor::separatorColor().setStroke();
+        NSColor::tertiaryLabelColor().setStroke();
         border_path.stroke();
     }
 
@@ -806,6 +805,15 @@ pub fn create_editor_view(
     );
     // Initial padding — app.rs will tune this dynamically on window resize.
     mdit_tv.setTextContainerInset(NSSize::new(40.0, 40.0));
+
+    // Prevent NSTextView from overriding our custom link color with the
+    // default blue+underline styling. An empty dictionary means "no special
+    // attributes for links" — our ForegroundColor("link") is preserved.
+    unsafe {
+        let cls = objc2::runtime::AnyClass::get(c"NSDictionary").unwrap();
+        let empty: *mut objc2::runtime::AnyObject = msg_send![cls, new];
+        let _: () = msg_send![&*mdit_tv, setLinkTextAttributes: empty];
+    }
 
     // 3. Wire our delegate to the text view's storage for re-parse on edit.
     //    Default to light scheme; app.rs overrides after appearance detection.

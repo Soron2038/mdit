@@ -13,6 +13,8 @@ pub enum TextAttribute {
     ListMarker,
     BlockquoteBar,
     Strikethrough,
+    Superscript,
+    Subscript,
     LineSpacing(u32), // in tenths of a point (e.g. 96 = 9.6pt)
     /// Marks an H1/H2 heading paragraph: triggers a 1px separator line drawn
     /// above the heading (only when content precedes it in the document).
@@ -20,6 +22,8 @@ pub enum TextAttribute {
     /// Marks a thematic break (horizontal rule): triggers a centred
     /// horizontal line drawn across the full width.
     ThematicBreak,
+    /// Clickable link — value is the target URL string.
+    Link(String),
 }
 
 #[derive(Debug, Clone, Default)]
@@ -113,6 +117,24 @@ impl AttributeSet {
         Self::new(vec![
             TextAttribute::Strikethrough,
             TextAttribute::ForegroundColor("strikethrough"),
+        ])
+    }
+
+    pub fn for_highlight() -> Self {
+        Self::new(vec![TextAttribute::BackgroundColor("highlight_bg")])
+    }
+
+    pub fn for_subscript() -> Self {
+        Self::new(vec![
+            TextAttribute::Subscript,
+            TextAttribute::ForegroundColor("subscript"),
+        ])
+    }
+
+    pub fn for_superscript() -> Self {
+        Self::new(vec![
+            TextAttribute::Superscript,
+            TextAttribute::ForegroundColor("superscript"),
         ])
     }
 
