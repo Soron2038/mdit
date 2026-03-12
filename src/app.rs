@@ -222,6 +222,27 @@ define_class!(
             }
         }
 
+        #[unsafe(method(applyHighlight:))]
+        fn apply_highlight(&self, _sender: &AnyObject) {
+            if let Some(tv) = self.active_text_view() {
+                toggle_inline_wrap(&tv, "==");
+            }
+        }
+
+        #[unsafe(method(applySubscript:))]
+        fn apply_subscript(&self, _sender: &AnyObject) {
+            if let Some(tv) = self.active_text_view() {
+                toggle_inline_wrap(&tv, "~");
+            }
+        }
+
+        #[unsafe(method(applySuperscript:))]
+        fn apply_superscript(&self, _sender: &AnyObject) {
+            if let Some(tv) = self.active_text_view() {
+                toggle_inline_wrap(&tv, "^");
+            }
+        }
+
         // ── Appearance ─────────────────────────────────────────────────────
 
         #[unsafe(method(applyLightMode:))]

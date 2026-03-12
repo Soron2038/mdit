@@ -127,6 +127,28 @@ const BTN_DEFS: &[ButtonDef] = &[
         tooltip: "Strikethrough",
         fallback: "~~",
     },
+    // ── highlight / sub / super group ────────────────────────────────────
+    ButtonDef {
+        kind: ButtonKind::SfSymbol("highlighter"),
+        selector: c"applyHighlight:",
+        start_new_group: true,
+        tooltip: "Highlight (==text==)",
+        fallback: "==",
+    },
+    ButtonDef {
+        kind: ButtonKind::SfSymbol("textformat.subscript"),
+        selector: c"applySubscript:",
+        start_new_group: false,
+        tooltip: "Subscript (~text~)",
+        fallback: "x\u{2082}",
+    },
+    ButtonDef {
+        kind: ButtonKind::SfSymbol("textformat.superscript"),
+        selector: c"applySuperscript:",
+        start_new_group: false,
+        tooltip: "Superscript (^text^)",
+        fallback: "x\u{00B2}",
+    },
     // ── insert group ─────────────────────────────────────────────────────
     ButtonDef {
         kind: ButtonKind::SfSymbol("link"),
