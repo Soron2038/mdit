@@ -78,13 +78,12 @@ impl AttributeSet {
 
     pub fn for_heading(level: u8) -> Self {
         let size: u8 = match level {
-            1 => 32,
-            2 => 26,
-            3 => 21,
+            1 => 22,
+            2 => 18,
+            3 => 15,
             _ => 16,
         };
         let mut attrs = vec![
-            TextAttribute::Bold,
             TextAttribute::FontSize(size),
             TextAttribute::ForegroundColor("heading"),
         ];

@@ -18,28 +18,31 @@ pub struct ColorScheme {
     pub highlight_bg: (f64, f64, f64),
     pub subscript: (f64, f64, f64),
     pub superscript: (f64, f64, f64),
+    /// UI accent color — used for the tab indicator and sidebar hover state.
+    pub accent: (f64, f64, f64),
 }
 
 impl ColorScheme {
     pub fn light() -> Self {
         Self {
-            text:          (0.10, 0.10, 0.10),
-            background:    (0.98, 0.98, 0.98),
-            heading:       (0.15, 0.25, 0.60),
-            bold:          (0.75, 0.40, 0.00),
-            italic:        (0.55, 0.20, 0.65),
-            link:          (0.10, 0.40, 0.80),
-            code_bg:       (0.93, 0.94, 0.96),
-            code_fg:       (0.00, 0.45, 0.45),
-            code_block_bg: (0.93, 0.93, 0.95),
-            table_bg:      (0.93, 0.93, 0.95),
-            syntax_marker: (0.55, 0.55, 0.60),
-            strikethrough: (0.50, 0.50, 0.50),
-            blockquote:    (0.30, 0.50, 0.55),
-            list_marker:   (0.40, 0.30, 0.60),
-            highlight_bg:  (1.00, 0.95, 0.55),
-            subscript:     (0.30, 0.50, 0.55),
-            superscript:   (0.30, 0.50, 0.55),
+            text:          (0.173, 0.157, 0.149),
+            background:    (0.992, 0.976, 0.969),
+            heading:       (0.102, 0.090, 0.078),
+            bold:          (0.784, 0.475, 0.255),
+            italic:        (0.45,  0.25,  0.55),
+            link:          (0.10,  0.40,  0.80),
+            code_bg:       (0.953, 0.937, 0.918),
+            code_fg:       (0.00,  0.40,  0.40),
+            code_block_bg: (0.953, 0.937, 0.918),
+            table_bg:      (0.953, 0.937, 0.918),
+            syntax_marker: (0.65,  0.60,  0.55),
+            strikethrough: (0.55,  0.50,  0.45),
+            blockquote:    (0.55,  0.45,  0.35),
+            list_marker:   (0.784, 0.475, 0.255),
+            highlight_bg:  (1.00,  0.93,  0.70),
+            subscript:     (0.55,  0.45,  0.35),
+            superscript:   (0.55,  0.45,  0.35),
+            accent:        (0.784, 0.475, 0.255),
         }
     }
 
@@ -62,6 +65,7 @@ impl ColorScheme {
             highlight_bg:  (0.55, 0.45, 0.10),
             subscript:     (0.50, 0.70, 0.75),
             superscript:   (0.50, 0.70, 0.75),
+            accent:        (1.00, 0.70, 0.30),
         }
     }
 

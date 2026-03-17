@@ -129,7 +129,7 @@ fn setext_h2_does_not_hide_content_prefix() {
     assert!(content_run.is_some(),
         "expected a run for 'kursiv' at (0, 6); runs: {:?}", runs.iter().map(|r| r.range).collect::<Vec<_>>());
     let content_run = content_run.unwrap();
-    assert!(content_run.attrs.font_size() > 20.0,
+    assert!(content_run.attrs.font_size() >= 18.0,
         "setext H2 content must have heading font size, got {}", content_run.attrs.font_size());
     assert!(!content_run.attrs.contains(&TextAttribute::Hidden),
         "setext H2 content must not be hidden");

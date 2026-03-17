@@ -187,6 +187,8 @@ pub struct SidebarButtonViewIvars {
     cached_images: RefCell<Vec<Option<Retained<NSImage>>>>,
     /// The active tracking area, if any.
     tracking_area: RefCell<Option<Retained<AnyObject>>>,
+    /// Accent color used for hover/press icon tint (RGB floats).
+    accent_color: Cell<(f64, f64, f64)>,
 }
 
 define_class!(
@@ -313,6 +315,7 @@ impl SidebarButtonView {
             target: Cell::new(target as *const AnyObject),
             cached_images: RefCell::new(images),
             tracking_area: RefCell::new(None),
+            accent_color: Cell::new((0.784, 0.475, 0.255)), // Amber default
         });
         let view: Retained<Self> = unsafe { msg_send![super(this), initWithFrame: frame] };
         view.compute_button_origins(frame.size.height);
@@ -411,7 +414,8 @@ impl SidebarButtonView {
 
             // ── Icon / text color ──────────────────────────────────────────
             let icon_color = if is_hovered || is_pressed {
-                NSColor::controlAccentColor()
+                let (r, g, b) = self.ivars().accent_color.get();
+                NSColor::colorWithRed_green_blue_alpha(r, g, b, 1.0)
             } else {
                 NSColor::secondaryLabelColor()
             };
@@ -528,6 +532,14 @@ impl FormattingSidebar {
     }
 
     // ── Public API ─────────────────────────────────────────────────────────
+
+    /// Update the accent color used for hover/press icon tint.
+    ///
+    /// Call whenever the color scheme changes to keep the sidebar in sync.
+    pub fn set_accent_color(&self, r: f64, g: f64, b: f64) {
+        self.sidebar_view.ivars().accent_color.set((r, g, b));
+        let _: () = unsafe { msg_send![&*self.sidebar_view, setNeedsDisplay: true] };
+    }
 
     /// Refresh the right-border color from the current system separatorColor.
     ///

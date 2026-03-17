@@ -91,18 +91,23 @@ impl TabBar {
             indicator,
             bottom_sep,
         };
-        tb.apply_colors();
+        tb.apply_colors(None);
         tb
     }
 
     /// Apply dynamic colors to indicator and bottom separator.
     ///
+    /// `accent` overrides the indicator color with an explicit RGB value.
+    /// Pass `None` to fall back to the system accent color.
     /// Call after creation and whenever the system appearance changes.
-    pub fn apply_colors(&self) {
+    pub fn apply_colors(&self, accent: Option<(f64, f64, f64)>) {
         // Accent color for active-tab indicator
         if let Some(layer) = self.indicator.layer() {
-            let accent = NSColor::controlAccentColor();
-            let cg: *mut std::ffi::c_void = unsafe { msg_send![&*accent, CGColor] };
+            let color = match accent {
+                Some((r, g, b)) => NSColor::colorWithRed_green_blue_alpha(r, g, b, 1.0),
+                None => NSColor::controlAccentColor(),
+            };
+            let cg: *mut std::ffi::c_void = unsafe { msg_send![&*color, CGColor] };
             let raw: *const AnyObject = Retained::as_ptr(&layer).cast();
             let _: () = unsafe { msg_send![raw, setBackgroundColor: cg] };
         }
@@ -189,11 +194,13 @@ impl TabBar {
             x += CLOSE_W + PAD;
         }
 
-        // ── + button ─────────────────────────────────────────────────────
+        // ── + button (pinned to right edge) ──────────────────────────────
+        let bar_width = self.container.frame().size.width;
+        let plus_x = (bar_width - PLUS_W - PAD).max(x);
         let plus_btn = make_button(
             mtm,
             "+",
-            NSRect::new(NSPoint::new(x, y), NSSize::new(PLUS_W, BTN_H)),
+            NSRect::new(NSPoint::new(plus_x, y), NSSize::new(PLUS_W, BTN_H)),
             Sel::register(c"newDocument:"),
             target,
             -1isize,

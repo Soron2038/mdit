@@ -2,12 +2,13 @@ use std::cell::{OnceCell, RefCell};
 use std::path::PathBuf;
 
 use objc2::rc::Retained;
-use objc2::runtime::{AnyObject, ProtocolObject};
-use objc2::{define_class, msg_send, DefinedClass, MainThreadOnly};
+use objc2::runtime::{AnyClass, AnyObject, ProtocolObject};
+use objc2::{define_class, msg_send, sel, DefinedClass, MainThreadOnly};
 use objc2_app_kit::{
     NSAppearanceNameAqua, NSAppearanceNameDarkAqua, NSApplication, NSApplicationActivationPolicy,
-    NSApplicationDelegate, NSBackingStoreType, NSColor, NSTextDelegate, NSTextView,
-    NSTextViewDelegate, NSWindow, NSWindowDelegate, NSWindowStyleMask,
+    NSApplicationDelegate, NSBackingStoreType, NSBezelStyle, NSButton, NSColor, NSControl,
+    NSImage, NSTextDelegate, NSTextView, NSTextViewDelegate, NSView, NSWindow,
+    NSWindowDelegate, NSWindowStyleMask,
 };
 use objc2_foundation::{
     ns_string, MainThreadMarker, NSArray, NSNotification, NSObject, NSObjectProtocol, NSPoint,
@@ -71,6 +72,11 @@ define_class!(
             window.center();
             window.makeKeyAndOrderFront(None);
 
+            let target: &AnyObject = unsafe {
+                &*(self as *const AppDelegate as *const AnyObject)
+            };
+            add_titlebar_accessory(&window, mtm, target);
+
             let content = window.contentView().unwrap();
             let bounds = content.bounds();
             let w = bounds.size.width;
@@ -84,12 +90,8 @@ define_class!(
             ));
             content.addSubview(tab_bar.view());
 
-            let target: &AnyObject = unsafe {
-                &*(self as *const AppDelegate as *const AnyObject)
-            };
-
-            // PathBar at the bottom (with toggle button targeting AppDelegate)
-            let path_bar = PathBar::new(mtm, w, target);
+            // PathBar at the bottom
+            let path_bar = PathBar::new(mtm, w);
             content.addSubview(path_bar.view());
 
             // Sidebar — formatting toolbar (hidden in default Viewer mode)
@@ -99,7 +101,7 @@ define_class!(
                 NSPoint::new(0.0, PATH_H),
                 NSSize::new(SIDEBAR_W, content_h),
             ));
-            sidebar.view().setHidden(true); // Viewer mode: sidebar hidden
+            // Sidebar is always visible regardless of mode.
             content.addSubview(sidebar.view());
 
             self.ivars().window.set(window).unwrap();
@@ -189,56 +191,56 @@ define_class!(
 
         #[unsafe(method(applyBold:))]
         fn apply_bold(&self, _sender: &AnyObject) {
-            if let Some(tv) = self.active_text_view() {
+            if let Some(tv) = self.editor_text_view() {
                 toggle_inline_wrap(&tv, "**");
             }
         }
 
         #[unsafe(method(applyItalic:))]
         fn apply_italic(&self, _sender: &AnyObject) {
-            if let Some(tv) = self.active_text_view() {
+            if let Some(tv) = self.editor_text_view() {
                 toggle_inline_wrap(&tv, "_");
             }
         }
 
         #[unsafe(method(applyInlineCode:))]
         fn apply_inline_code(&self, _sender: &AnyObject) {
-            if let Some(tv) = self.active_text_view() {
+            if let Some(tv) = self.editor_text_view() {
                 toggle_inline_wrap(&tv, "`");
             }
         }
 
         #[unsafe(method(applyLink:))]
         fn apply_link(&self, _sender: &AnyObject) {
-            if let Some(tv) = self.active_text_view() {
+            if let Some(tv) = self.editor_text_view() {
                 insert_link_wrap(&tv, "[", "]()");
             }
         }
 
         #[unsafe(method(applyStrikethrough:))]
         fn apply_strikethrough(&self, _sender: &AnyObject) {
-            if let Some(tv) = self.active_text_view() {
+            if let Some(tv) = self.editor_text_view() {
                 toggle_inline_wrap(&tv, "~~");
             }
         }
 
         #[unsafe(method(applyHighlight:))]
         fn apply_highlight(&self, _sender: &AnyObject) {
-            if let Some(tv) = self.active_text_view() {
+            if let Some(tv) = self.editor_text_view() {
                 toggle_inline_wrap(&tv, "==");
             }
         }
 
         #[unsafe(method(applySubscript:))]
         fn apply_subscript(&self, _sender: &AnyObject) {
-            if let Some(tv) = self.active_text_view() {
+            if let Some(tv) = self.editor_text_view() {
                 toggle_inline_wrap(&tv, "~");
             }
         }
 
         #[unsafe(method(applySuperscript:))]
         fn apply_superscript(&self, _sender: &AnyObject) {
-            if let Some(tv) = self.active_text_view() {
+            if let Some(tv) = self.editor_text_view() {
                 toggle_inline_wrap(&tv, "^");
             }
         }
@@ -321,49 +323,49 @@ define_class!(
 
         #[unsafe(method(applyH1:))]
         fn apply_h1(&self, _sender: &AnyObject) {
-            if let Some(tv) = self.active_text_view() {
+            if let Some(tv) = self.editor_text_view() {
                 apply_block_format(&tv, "# ");
             }
         }
 
         #[unsafe(method(applyH2:))]
         fn apply_h2(&self, _sender: &AnyObject) {
-            if let Some(tv) = self.active_text_view() {
+            if let Some(tv) = self.editor_text_view() {
                 apply_block_format(&tv, "## ");
             }
         }
 
         #[unsafe(method(applyH3:))]
         fn apply_h3(&self, _sender: &AnyObject) {
-            if let Some(tv) = self.active_text_view() {
+            if let Some(tv) = self.editor_text_view() {
                 apply_block_format(&tv, "### ");
             }
         }
 
         #[unsafe(method(applyNormal:))]
         fn apply_normal(&self, _sender: &AnyObject) {
-            if let Some(tv) = self.active_text_view() {
+            if let Some(tv) = self.editor_text_view() {
                 apply_block_format(&tv, "");
             }
         }
 
         #[unsafe(method(applyBlockquote:))]
         fn apply_blockquote(&self, _sender: &AnyObject) {
-            if let Some(tv) = self.active_text_view() {
+            if let Some(tv) = self.editor_text_view() {
                 apply_block_format(&tv, "> ");
             }
         }
 
         #[unsafe(method(applyCodeBlock:))]
         fn apply_code_block(&self, _sender: &AnyObject) {
-            if let Some(tv) = self.active_text_view() {
+            if let Some(tv) = self.editor_text_view() {
                 insert_code_block(&tv);
             }
         }
 
         #[unsafe(method(applyHRule:))]
         fn apply_h_rule(&self, _sender: &AnyObject) {
-            if let Some(tv) = self.active_text_view() {
+            if let Some(tv) = self.editor_text_view() {
                 let caret: NSRange = unsafe { msg_send![&*tv, selectedRange] };
                 let ns = NSString::from_str("\n---\n");
                 unsafe { msg_send![&*tv, insertText: &*ns, replacementRange: caret] }
@@ -407,7 +409,7 @@ impl AppDelegate {
     }
 
     /// Frame for the active NSScrollView (between TabBar and PathBar).
-    /// In Viewer mode, the sidebar is hidden so the editor gets the full width.
+    /// The sidebar is always visible, so the editor is always offset by SIDEBAR_W.
     fn content_frame(&self) -> NSRect {
         let Some(win) = self.ivars().window.get() else {
             return NSRect::ZERO;
@@ -415,11 +417,9 @@ impl AppDelegate {
         let bounds = win.contentView().unwrap().bounds();
         let h = bounds.size.height;
         let w = bounds.size.width;
-        let sidebar_visible = self.is_editor_mode();
-        let sidebar_w = if sidebar_visible { SIDEBAR_W } else { 0.0 };
         NSRect::new(
-            NSPoint::new(sidebar_w, PATH_H),
-            NSSize::new((w - sidebar_w).max(0.0), (h - TAB_H - PATH_H).max(0.0)),
+            NSPoint::new(SIDEBAR_W, PATH_H),
+            NSSize::new((w - SIDEBAR_W).max(0.0), (h - TAB_H - PATH_H).max(0.0)),
         )
     }
 
@@ -452,12 +452,7 @@ impl AppDelegate {
         // Configure text view editability.
         text_view.setEditable(new_mode == ViewMode::Editor);
 
-        // Show/hide sidebar.
-        if let Some(sb) = self.ivars().sidebar.get() {
-            sb.view().setHidden(new_mode == ViewMode::Viewer);
-        }
-
-        // Recompute scroll view frame (sidebar width changes).
+        // Recompute scroll view frame.
         let frame = self.content_frame();
         {
             let tm = self.ivars().tab_manager.borrow();
@@ -469,11 +464,6 @@ impl AppDelegate {
         // Re-render with the new pipeline.
         if let Some(storage) = unsafe { text_view.textStorage() } {
             editor_delegate.reapply(&storage);
-        }
-
-        // Update path bar toggle icon.
-        if let Some(pb) = self.ivars().path_bar.get() {
-            pb.update_mode_icon(new_mode);
         }
 
         self.update_text_container_inset();
@@ -540,6 +530,16 @@ impl AppDelegate {
         tm.active().map(|t| t.text_view.clone())
     }
 
+    /// Return the active text view, switching to Editor mode first if in Viewer mode.
+    /// Used by all formatting actions so clicking a sidebar button in Viewer mode
+    /// automatically activates the editor.
+    fn editor_text_view(&self) -> Option<Retained<NSTextView>> {
+        if !self.is_editor_mode() {
+            self.toggle_mode();
+        }
+        self.active_text_view()
+    }
+
     /// Rebuild tab bar buttons.
     fn rebuild_tab_bar(&self) {
         let Some(_win) = self.ivars().window.get() else {
@@ -571,15 +571,6 @@ impl AppDelegate {
 
         self.ivars().tab_manager.borrow_mut().switch_to(index);
 
-        // Restore sidebar visibility for the new tab's mode.
-        let new_mode = {
-            let tm = self.ivars().tab_manager.borrow();
-            tm.get(index).map(|t| t.mode.get()).unwrap_or(ViewMode::Viewer)
-        };
-        if let Some(sb) = self.ivars().sidebar.get() {
-            sb.view().setHidden(new_mode == ViewMode::Viewer);
-        }
-
         // Insert new scroll view
         let frame = self.content_frame();
         {
@@ -595,7 +586,6 @@ impl AppDelegate {
             let tm = self.ivars().tab_manager.borrow();
             let url = tm.get(index).and_then(|t| t.url.borrow().clone());
             pb.update(url.as_deref());
-            pb.update_mode_icon(new_mode);
         }
 
         self.rebuild_tab_bar();
@@ -603,7 +593,7 @@ impl AppDelegate {
     }
 
     /// Create a new empty tab and activate it.
-    /// New tabs start in Viewer mode (non-editable, sidebar hidden).
+    /// New tabs start in Viewer mode (non-editable).
     fn add_empty_tab(&self) {
         let mtm = self.mtm();
         let scheme = self.ivars().tab_manager.borrow().first_scheme()
@@ -637,9 +627,11 @@ impl AppDelegate {
         drop(tm);
         if let Some(sb) = self.ivars().sidebar.get() {
             sb.apply_separator_color();
+            let (r, g, b) = scheme.accent;
+            sb.set_accent_color(r, g, b);
         }
         if let Some(tb) = self.ivars().tab_bar.get() {
-            tb.apply_colors();
+            tb.apply_colors(Some(scheme.accent));
         }
     }
 
@@ -782,8 +774,7 @@ impl AppDelegate {
         let Some(win) = self.ivars().window.get() else {
             return;
         };
-        let sidebar_w = if self.is_editor_mode() { SIDEBAR_W } else { 0.0 };
-        let editor_width = (win.frame().size.width - sidebar_w).max(0.0);
+        let editor_width = (win.frame().size.width - SIDEBAR_W).max(0.0);
         let max_text_width = 700.0_f64;
         let min_padding = 40.0_f64;
         let h_inset = if editor_width > max_text_width + 2.0 * min_padding {
@@ -962,6 +953,71 @@ fn detect_scheme(app: &NSApplication) -> ColorScheme {
         ColorScheme::dark()
     } else {
         ColorScheme::light()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Titlebar accessory (eye toggle + ellipsis)
+// ---------------------------------------------------------------------------
+
+/// Add an Eye (toggle mode) button and an ellipsis button to the right side
+/// of the macOS title bar using `NSTitlebarAccessoryViewController`.
+fn add_titlebar_accessory(window: &NSWindow, mtm: MainThreadMarker, target: &AnyObject) {
+    let btn_h = 20.0_f64;
+    let btn_w = 26.0_f64;
+    let acc_h = 28.0_f64;
+    let gap = 2.0_f64;
+    let total_w = btn_w * 2.0 + gap + 4.0;
+    let v_off = (acc_h - btn_h) / 2.0;
+
+    let acc_view = NSView::initWithFrame(
+        NSView::alloc(mtm),
+        NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(total_w, acc_h)),
+    );
+
+    // Eye button — toggles Viewer/Editor mode.
+    let eye_btn = NSButton::initWithFrame(
+        NSButton::alloc(mtm),
+        NSRect::new(NSPoint::new(2.0, v_off), NSSize::new(btn_w, btn_h)),
+    );
+    eye_btn.setBezelStyle(NSBezelStyle::AccessoryBarAction);
+    eye_btn.setBordered(false);
+    let eye_name = NSString::from_str("eye");
+    if let Some(img) = NSImage::imageWithSystemSymbolName_accessibilityDescription(&eye_name, None) {
+        eye_btn.setImage(Some(&img));
+    }
+    eye_btn.setTitle(&NSString::from_str(""));
+    unsafe {
+        NSControl::setTarget(&eye_btn, Some(target));
+        NSControl::setAction(&eye_btn, Some(sel!(toggleMode:)));
+        let _: () = msg_send![&*eye_btn, setToolTip: &*NSString::from_str("Toggle Editor (⌘E)")];
+    }
+    acc_view.addSubview(&eye_btn);
+
+    // Ellipsis button — placeholder for future options.
+    let more_btn = NSButton::initWithFrame(
+        NSButton::alloc(mtm),
+        NSRect::new(NSPoint::new(2.0 + btn_w + gap, v_off), NSSize::new(btn_w, btn_h)),
+    );
+    more_btn.setBezelStyle(NSBezelStyle::AccessoryBarAction);
+    more_btn.setBordered(false);
+    let ellipsis_name = NSString::from_str("ellipsis");
+    if let Some(img) = NSImage::imageWithSystemSymbolName_accessibilityDescription(&ellipsis_name, None) {
+        more_btn.setImage(Some(&img));
+    }
+    more_btn.setTitle(&NSString::from_str(""));
+    acc_view.addSubview(&more_btn);
+
+    // NSTitlebarAccessoryViewController — set layoutAttribute to .trailing (12).
+    let Some(vc_cls) = AnyClass::get(c"NSTitlebarAccessoryViewController") else { return };
+    unsafe {
+        let alloc: *mut AnyObject = msg_send![vc_cls, alloc];
+        let vc: *mut AnyObject = msg_send![alloc, init];
+        if vc.is_null() { return; }
+        let vc_ret = Retained::retain(vc).expect("NSTitlebarAccessoryViewController");
+        let _: () = msg_send![&*vc_ret, setView: &*acc_view];
+        let _: () = msg_send![&*vc_ret, setLayoutAttribute: 12isize];
+        let _: () = msg_send![window, addTitlebarAccessoryViewController: &*vc_ret];
     }
 }
 

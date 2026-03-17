@@ -600,9 +600,9 @@ impl MditTextView {
                 continue;
             }
 
-            // ── Build full-width block rect (10pt vertical padding) ───────────
-            let block_y = top_frag.origin.y + tc_origin.y - 10.0;
-            let block_bottom = bot_frag.origin.y + bot_frag.size.height + tc_origin.y + 10.0;
+            // ── Build full-width block rect (7pt vertical padding) ────────────
+            let block_y = top_frag.origin.y + tc_origin.y - 7.0;
+            let block_bottom = bot_frag.origin.y + bot_frag.size.height + tc_origin.y + 7.0;
             let block_rect = NSRect::new(
                 NSPoint::new(tc_origin.x, block_y),
                 NSSize::new(container_width, block_bottom - block_y),
@@ -789,14 +789,15 @@ pub fn create_editor_view(
     // 2. MditTextView (NSTextView subclass with separator-line drawing)
     let mdit_tv = MditTextView::new(mtm, text_rect);
 
-    // Basic appearance — SF Pro body, semantic background color.
+    // Basic appearance — Georgia serif body, semantic background color.
     mdit_tv.setRichText(false);
-    let body_font = unsafe { NSFont::systemFontOfSize_weight(16.0, NSFontWeightRegular) };
+    let body_font = NSFont::fontWithName_size(&NSString::from_str("Georgia"), 16.0)
+        .unwrap_or_else(|| unsafe { NSFont::systemFontOfSize_weight(16.0, NSFontWeightRegular) });
     mdit_tv.setFont(Some(&body_font));
     mdit_tv.setTextColor(Some(&NSColor::labelColor()));
     // Use an explicit sRGB colour matching ColorScheme::light().background so that
     // apply_scheme() can override it consistently for any scheme, including dark mode.
-    let initial_bg = NSColor::colorWithRed_green_blue_alpha(0.98, 0.98, 0.98, 1.0);
+    let initial_bg = NSColor::colorWithRed_green_blue_alpha(0.992, 0.976, 0.969, 1.0);
     mdit_tv.setBackgroundColor(&initial_bg);
     mdit_tv.setAutomaticQuoteSubstitutionEnabled(false);
     mdit_tv.setAutomaticDashSubstitutionEnabled(false);

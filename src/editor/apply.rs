@@ -16,6 +16,7 @@ use objc2_foundation::{NSNumber, NSRange, NSSize, NSString, NSURL};
 
 use crate::editor::renderer::{AttributeRun, TableInfo};
 use crate::markdown::attributes::{AttributeSet, TextAttribute};
+use crate::markdown::highlighter::highlight;
 use crate::markdown::parser::{MarkdownSpan, NodeKind};
 use crate::ui::appearance::ColorScheme;
 
@@ -31,6 +32,10 @@ pub struct CodeBlockInfo {
     pub start_utf16: usize,
     /// UTF-16 code-unit offset one past the code block's last character.
     pub end_utf16: usize,
+    /// UTF-16 code-unit offset of the first code character (after the
+    /// opening fence line).  Used to map per-token highlight spans into
+    /// document positions.
+    pub code_start_utf16: usize,
     /// The raw code content (without fences, trailing newline stripped).
     pub text: String,
     /// The language tag from the opening fence (e.g. "rust"), or empty string.
@@ -48,11 +53,20 @@ pub fn collect_code_block_infos(spans: &[MarkdownSpan], text: &str) -> Vec<CodeB
 fn collect_recursive(spans: &[MarkdownSpan], text: &str, out: &mut Vec<CodeBlockInfo>) {
     for span in spans {
         if let NodeKind::CodeBlock { code, language } = &span.kind {
+            // Find where the code content starts (the line after the opening
+            // fence), so we can map per-token highlight spans to document
+            // UTF-16 positions.
+            let block_start = span.source_range.0;
+            let block_slice = &text[block_start..span.source_range.1.min(text.len())];
+            let code_offset = block_slice.find('\n').map(|p| p + 1).unwrap_or(0);
+            let code_start_byte = block_start + code_offset;
+
             out.push(CodeBlockInfo {
-                start_utf16: byte_to_utf16(text, span.source_range.0),
-                end_utf16:   byte_to_utf16(text, span.source_range.1),
-                text:        code.clone(),
-                language:    language.clone(),
+                start_utf16:      byte_to_utf16(text, block_start),
+                end_utf16:        byte_to_utf16(text, span.source_range.1),
+                code_start_utf16: byte_to_utf16(text, code_start_byte),
+                text:             code.clone(),
+                language:         language.clone(),
             });
         }
         collect_recursive(&span.children, text, out);
@@ -118,7 +132,7 @@ pub fn apply_attribute_runs(
     let full_range = NSRange { location: 0, length: text_len_u16 };
 
     // Build reusable base-style objects.
-    let body_font = unsafe { NSFont::systemFontOfSize_weight(16.0, NSFontWeightRegular) };
+    let body_font = serif_font(16.0, false, false);
     let text_color = make_color(scheme.text);
     let para_style = make_para_style(9.6);
 
@@ -305,6 +319,47 @@ pub fn apply_attribute_runs(
         }
     }
 
+    // ── Apply per-token syntax highlighting to code blocks ──────────────
+    // The flat `code_fg` baseline was applied earlier via for_code_block();
+    // these per-token colors override it, giving warm harmonious highlighting.
+    let is_dark = scheme.background.0 < 0.5;
+    for info in code_block_infos {
+        if info.text.is_empty() {
+            continue;
+        }
+        let result = highlight(&info.text, &info.language, is_dark);
+        for span in &result.spans {
+            // Map byte offsets within info.text to UTF-16 positions in the
+            // full document.
+            let span_start = span.range.0.min(info.text.len());
+            let span_end   = span.range.1.min(info.text.len());
+            if span_start >= span_end {
+                continue;
+            }
+            let s_u16 = info.code_start_utf16
+                + info.text[..span_start].encode_utf16().count();
+            let e_u16 = info.code_start_utf16
+                + info.text[..span_end].encode_utf16().count();
+            if s_u16 >= e_u16 || e_u16 > text_len_u16 {
+                continue;
+            }
+            let range = NSRange { location: s_u16, length: e_u16 - s_u16 };
+            let (r, g, b) = (
+                span.color.0 as f64 / 255.0,
+                span.color.1 as f64 / 255.0,
+                span.color.2 as f64 / 255.0,
+            );
+            let color = NSColor::colorWithRed_green_blue_alpha(r, g, b, 1.0);
+            unsafe {
+                storage.addAttribute_value_range(
+                    NSForegroundColorAttributeName,
+                    color.as_ref(),
+                    range,
+                );
+            }
+        }
+    }
+
     LayoutPositions {
         heading_seps: heading_sep_positions,
         thematic_breaks: thematic_break_positions,
@@ -463,30 +518,35 @@ fn build_font(attrs: &AttributeSet) -> Retained<NSFont> {
     }
 
     if bold && italic {
-        // Combine bold weight + italic trait via NSFontDescriptor.
-        let base = unsafe { NSFont::systemFontOfSize_weight(size, NSFontWeightBold) };
-        let desc = base.fontDescriptor();
-        let traits = NSFontDescriptorSymbolicTraits::TraitBold
-            | NSFontDescriptorSymbolicTraits::TraitItalic;
-        let italic_desc = desc.fontDescriptorWithSymbolicTraits(traits);
-        return NSFont::fontWithDescriptor_size(&italic_desc, size)
-            .unwrap_or(base);
+        return serif_font(size, true, true);
     }
 
     if italic {
-        let base = unsafe { NSFont::systemFontOfSize_weight(size, NSFontWeightRegular) };
-        let desc = base.fontDescriptor();
-        let italic_desc =
-            desc.fontDescriptorWithSymbolicTraits(NSFontDescriptorSymbolicTraits::TraitItalic);
-        return NSFont::fontWithDescriptor_size(&italic_desc, size)
-            .unwrap_or(base);
+        return serif_font(size, false, true);
     }
 
     if bold {
-        return unsafe { NSFont::systemFontOfSize_weight(size, NSFontWeightBold) };
+        return serif_font(size, true, false);
     }
 
-    unsafe { NSFont::systemFontOfSize_weight(size, NSFontWeightRegular) }
+    serif_font(size, false, false)
+}
+
+/// Build a Georgia serif font for the given size and style.
+/// Falls back to the system font if Georgia is unavailable.
+fn serif_font(size: f64, bold: bool, italic: bool) -> Retained<NSFont> {
+    let name = match (bold, italic) {
+        (true,  true)  => "Georgia-BoldItalic",
+        (true,  false) => "Georgia-Bold",
+        (false, true)  => "Georgia-Italic",
+        (false, false) => "Georgia",
+    };
+    let ns_name = NSString::from_str(name);
+    NSFont::fontWithName_size(&ns_name, size)
+        .unwrap_or_else(|| unsafe {
+            let weight = if bold { NSFontWeightBold } else { NSFontWeightRegular };
+            NSFont::systemFontOfSize_weight(size, weight)
+        })
 }
 
 // ---------------------------------------------------------------------------
