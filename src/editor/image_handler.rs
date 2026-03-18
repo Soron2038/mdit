@@ -35,6 +35,8 @@ pub fn generate_image_path(doc_path: &Path, extension: &str) -> PathBuf {
 /// # TODO
 /// Implementation requires `NSPasteboard` (AppKit, main-thread only).
 /// Wire up via the `paste:` action override in `text_view.rs`.
+// Intentionally kept: will be wired up when image-paste support is added.
+// Requires NSPasteboard integration on the main thread — see image_handler.rs TODO.
 #[allow(dead_code)]
 pub fn save_image_from_clipboard(doc_path: &Path) -> Option<String> {
     let _ = doc_path;

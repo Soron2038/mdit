@@ -89,6 +89,8 @@ pub fn build_katex_html(latex: &str, display: bool) -> String {
 /// Currently unused — placeholder for the NSTextAttachment integration
 /// which will replace each `$$...$$` / `$...$` range with an attachment
 /// character backed by a `WKWebView`.
+// Intentionally kept: part of the future KaTeX math rendering integration.
+// Will be used when $$...$$ spans are replaced by WKWebView attachments.
 #[allow(dead_code)]
 pub fn is_display_math(latex: &str) -> bool {
     latex.starts_with("$$") && latex.ends_with("$$")
