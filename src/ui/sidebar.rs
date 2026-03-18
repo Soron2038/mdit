@@ -542,6 +542,12 @@ impl FormattingSidebar {
         border.setWantsLayer(true);
         container.addSubview(&border);
 
+        // Enable layer backing so masksToBounds clips buttons during animation.
+        container.setWantsLayer(true);
+        if let Some(layer) = container.layer() {
+            layer.setMasksToBounds(true);
+        }
+
         let s = Self { container, sidebar_view, border };
         s.apply_separator_color();
         s
@@ -585,6 +591,30 @@ impl FormattingSidebar {
         self.sidebar_view.compute_button_origins(height);
 
         // Resize border.
+        let mut bf = self.border.frame();
+        bf.size.height = height;
+        self.border.setFrame(bf);
+
+        let _: () = unsafe { msg_send![&*self.sidebar_view, setNeedsDisplay: true] };
+    }
+
+    /// Directly set the container width and height without animation.
+    ///
+    /// Use for tab-switch and window-resize paths. Internal subview heights are
+    /// updated; the sidebar button view and border keep their fixed x-positions
+    /// and are clipped by the container's layer mask.
+    pub fn set_size_direct(&self, width: f64, height: f64) {
+        let mut f = self.container.frame();
+        f.size.width = width;
+        f.size.height = height;
+        self.container.setFrame(f);
+
+        // Internal views: update height only (x/width stay at their SIDEBAR_W-based positions).
+        let mut sf = self.sidebar_view.frame();
+        sf.size.height = height;
+        self.sidebar_view.setFrame(sf);
+        self.sidebar_view.compute_button_origins(height);
+
         let mut bf = self.border.frame();
         bf.size.height = height;
         self.border.setFrame(bf);
