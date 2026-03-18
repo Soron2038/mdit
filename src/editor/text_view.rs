@@ -45,8 +45,10 @@ pub struct MditTextViewIvars {
 
 /// Look up the glyph index for a UTF-16 character position.
 ///
-/// Returns `None` when the layout manager has not yet laid out that character
-/// (NSNotFound ≈ `usize::MAX / 2`, i.e. NSIntegerMax = 0x7FFFFFFFFFFFFFFF).
+/// Returns `None` when the layout manager returns NSNotFound (NSIntegerMax =
+/// `0x7FFFFFFFFFFFFFFF` on 64-bit). The check `>= usize::MAX / 2` catches
+/// this value exactly. Previous call sites used `== usize::MAX` (incorrect —
+/// AppKit's NSNotFound is not `usize::MAX`); this helper fixes that silently.
 fn glyph_for_char(lm: &objc2_app_kit::NSLayoutManager, char_idx: usize) -> Option<usize> {
     let idx: usize =
         unsafe { msg_send![lm, glyphIndexForCharacterAtIndex: char_idx] };
@@ -215,7 +217,7 @@ impl MditTextView {
 
     /// Acquire the layout manager and text container in a single call.
     ///
-    /// Both are required by every drawing method. Returns `None` if either
+    /// Both are required by most drawing methods. Returns `None` if either
     /// is unavailable (layout not yet set up).
     fn layout_context(
         &self,
@@ -323,7 +325,7 @@ impl MditTextView {
             return;
         }
 
-        let (layout_manager, _text_container) = match self.layout_context() {
+        let (layout_manager, _) = match self.layout_context() {
             Some(ctx) => ctx,
             None => return,
         };
