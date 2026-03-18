@@ -96,6 +96,7 @@ fn clamp_span_range(start: usize, end: usize, text_len: usize) -> (usize, usize)
 ///
 /// `marker_size` — byte width of the opening and closing markers (1 or 2).
 /// `extra_attrs` — `TextAttribute`s added on top of `inherited` for the content run.
+#[allow(clippy::too_many_arguments)]
 fn collect_symmetric_marker(
     text: &str,
     span: &MarkdownSpan,
@@ -311,6 +312,7 @@ fn collect_heading(
 }
 
 /// "[title](url)" — asymmetric markers with link styling.
+#[allow(clippy::too_many_arguments)]
 fn collect_link(
     text: &str,
     span: &MarkdownSpan,

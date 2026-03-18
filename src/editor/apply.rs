@@ -543,7 +543,7 @@ fn build_font(attrs: &AttributeSet) -> Retained<NSFont> {
             let desc = base.fontDescriptor();
             let mut traits = NSFontDescriptorSymbolicTraits::TraitItalic;
             if bold {
-                traits = traits | NSFontDescriptorSymbolicTraits::TraitBold;
+                traits |= NSFontDescriptorSymbolicTraits::TraitBold;
             }
             let italic_desc = desc.fontDescriptorWithSymbolicTraits(traits);
             return NSFont::fontWithDescriptor_size(&italic_desc, code_size)

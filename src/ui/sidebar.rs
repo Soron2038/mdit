@@ -484,8 +484,8 @@ impl SidebarButtonView {
         let font = NSFont::systemFontOfSize_weight(font_size, font_weight);
 
         unsafe {
-            let font_obj: &AnyObject = &**font;
-            let color_obj: &AnyObject = &**color;
+            let font_obj: &AnyObject = &font;
+            let color_obj: &AnyObject = color;
             let _: () = msg_send![&*mattr,
                 addAttribute: NSFontAttributeName,
                 value: font_obj,

@@ -488,11 +488,11 @@ impl AppDelegate {
         // Reuse the active tab if it's a pristine empty tab, otherwise create a new one.
         let reuse = {
             let tm = self.ivars().tab_manager.borrow();
-            tm.active().map_or(false, |t| {
+            tm.active().is_some_and(|t| {
                 !t.is_dirty.get()
                     && t.url.borrow().is_none()
                     && unsafe { t.text_view.textStorage() }
-                        .map_or(true, |s| s.length() == 0)
+                        .is_none_or(|s| s.length() == 0)
             })
         };
         if !reuse {
