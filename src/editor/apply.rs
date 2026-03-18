@@ -380,6 +380,7 @@ fn apply_code_blocks(
                 + info.text[..span_start].encode_utf16().count();
             let e_u16 = info.code_start_utf16
                 + info.text[..span_end].encode_utf16().count();
+            // Offsets are within info.text (not document bytes), so mk_utf16_range doesn't apply.
             if s_u16 >= e_u16 || e_u16 > text_len_u16 {
                 continue;
             }
@@ -718,12 +719,8 @@ struct ParaStyleConfig {
 fn build_para_style(cfg: ParaStyleConfig) -> Retained<NSMutableParagraphStyle> {
     let style = NSMutableParagraphStyle::new();
     style.setLineSpacing(cfg.line_spacing);
-    if cfg.spacing_before != 0.0 {
-        style.setParagraphSpacingBefore(cfg.spacing_before);
-    }
-    if cfg.spacing_after != 0.0 {
-        style.setParagraphSpacing(cfg.spacing_after);
-    }
+    style.setParagraphSpacingBefore(cfg.spacing_before);  // always set, 0.0 is valid
+    style.setParagraphSpacing(cfg.spacing_after);         // always set, 0.0 is valid
     if cfg.indent != 0.0 {
         style.setHeadIndent(cfg.indent);
         style.setFirstLineHeadIndent(cfg.indent);
