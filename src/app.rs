@@ -150,7 +150,12 @@ define_class!(
             }
             if let Some(sb) = self.ivars().sidebar.get() {
                 let content_h = (h - TAB_H - PATH_H).max(0.0);
-                sb.set_height(content_h);
+                let mode = self.ivars().tab_manager.borrow()
+                    .active()
+                    .map(|t| t.mode.get())
+                    .unwrap_or(ViewMode::Viewer);
+                let sidebar_w = if mode == ViewMode::Editor { SIDEBAR_W } else { 0.0 };
+                sb.set_size_direct(sidebar_w, content_h);
             }
             let frame = self.content_frame();
             let tm = self.ivars().tab_manager.borrow();
@@ -760,6 +765,15 @@ impl AppDelegate {
                     let content = self.ivars().window.get().unwrap().contentView().unwrap();
                     t.scroll_view.setFrame(self.content_frame());
                     content.addSubview(&t.scroll_view);
+                    // Snap sidebar to the remaining tab's mode.
+                    // Read the mode while t/tm is still in scope (no early return here).
+                    let remaining_mode = t.mode.get();
+                    if let (Some(sb), Some(win)) = (self.ivars().sidebar.get(), self.ivars().window.get()) {
+                        let bounds = win.contentView().unwrap().bounds();
+                        let content_h = (bounds.size.height - TAB_H - PATH_H).max(0.0);
+                        let sidebar_w = if remaining_mode == ViewMode::Editor { SIDEBAR_W } else { 0.0 };
+                        sb.set_size_direct(sidebar_w, content_h);
+                    }
                 }
                 drop(tm);
                 self.rebuild_tab_bar();
