@@ -338,7 +338,7 @@ define_class!(
     unsafe impl NSTextViewDelegate for AppDelegate {
         #[unsafe(method(textViewDidChangeSelection:))]
         fn text_view_did_change_selection(&self, _notification: &NSNotification) {
-            // Selection changes are handled by the sidebar (always visible).
+            // Selection changes are handled by the sidebar (visible in Editor mode only).
             // No floating toolbar to show or hide.
         }
     }

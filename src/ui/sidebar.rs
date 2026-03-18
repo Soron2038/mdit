@@ -1,4 +1,4 @@
-//! Permanent left-margin formatting sidebar with Notion-style icon buttons.
+//! Left-margin formatting toolbar, visible in Editor mode only, with Notion-style icon buttons.
 //!
 //! Custom `NSView` subclass that draws SF Symbol icons (or styled text for
 //! headings) with hover effects: a rounded-rect pill background and accent
