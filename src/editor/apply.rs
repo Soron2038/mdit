@@ -2,6 +2,8 @@
 //! applies them to an `NSTextStorage`.
 //!
 //! This is the bridge between the platform-agnostic renderer and AppKit.
+//! `apply_attribute_runs` coordinates four phases: reset, per-run styling,
+//! table layout, and syntax highlighting.
 
 use objc2::rc::Retained;
 use objc2::msg_send;
@@ -130,27 +132,44 @@ pub fn apply_attribute_runs(
     }
 
     let full_range = NSRange { location: 0, length: text_len_u16 };
-
-    // Build reusable base-style objects.
     let body_font = serif_font(16.0, false, false);
     let text_color = make_color(scheme.text);
-    let para_style = make_para_style(9.6);
+    let para_style = build_para_style(ParaStyleConfig { line_spacing: 9.6, ..Default::default() });
 
+    reset_to_body_style(storage, &body_font, &text_color, &para_style, full_range);
+    let (heading_seps, thematic_breaks) = apply_runs(storage, text, runs, text_len_u16, scheme);
+    let table_grids = process_tables(storage, text, table_infos, text_len_u16);
+    apply_code_blocks(storage, code_block_infos, text_len_u16, scheme);
+
+    LayoutPositions { heading_seps, thematic_breaks, table_grids }
+}
+
+/// Reset the entire storage to the default body style.
+///
+/// Clears span-specific attributes (background, strikethrough, kern,
+/// superscript) and applies font, foreground color, and paragraph style
+/// uniformly so subsequent per-run overrides start from a clean base.
+fn reset_to_body_style(
+    storage: &NSTextStorage,
+    body_font: &NSFont,
+    text_color: &NSColor,
+    para_style: &NSMutableParagraphStyle,
+    full_range: NSRange,
+) {
     unsafe {
-        // ── Reset entire document to body style ───────────────────────────
         storage.addAttribute_value_range(
             NSFontAttributeName,
-            body_font.as_ref(),
+            body_font,
             full_range,
         );
         storage.addAttribute_value_range(
             NSForegroundColorAttributeName,
-            text_color.as_ref(),
+            text_color,
             full_range,
         );
         storage.addAttribute_value_range(
             NSParagraphStyleAttributeName,
-            para_style.as_ref(),
+            para_style,
             full_range,
         );
         // Clear attributes that only apply to specific spans.
@@ -159,17 +178,25 @@ pub fn apply_attribute_runs(
         storage.removeAttribute_range(NSKernAttributeName, full_range);
         storage.removeAttribute_range(NSSuperscriptAttributeName, full_range);
     }
+}
 
-    // ── Per-run overrides ─────────────────────────────────────────────────
-    let mut heading_sep_positions: Vec<usize> = Vec::new();
-    let mut thematic_break_positions: Vec<usize> = Vec::new();
+/// Apply per-run attribute overrides and collect positions of decorative elements.
+///
+/// Returns `(heading_seps, thematic_breaks)` — UTF-16 offsets used by
+/// `MditTextView` to draw separator lines and horizontal rules.
+fn apply_runs(
+    storage: &NSTextStorage,
+    text: &str,
+    runs: &[AttributeRun],
+    text_len_u16: usize,
+    scheme: &ColorScheme,
+) -> (Vec<usize>, Vec<usize>) {
+    let mut heading_seps: Vec<usize> = Vec::new();
+    let mut thematic_breaks: Vec<usize> = Vec::new();
     for run in runs {
-        let start_u16 = byte_to_utf16(text, run.range.0);
-        let end_u16 = byte_to_utf16(text, run.range.1);
-        if start_u16 >= end_u16 || end_u16 > text_len_u16 {
+        let Some(range) = mk_utf16_range(text, run.range.0, run.range.1, text_len_u16) else {
             continue;
-        }
-        let range = NSRange { location: start_u16, length: end_u16 - start_u16 };
+        };
         apply_attr_set(storage, range, &run.attrs, scheme);
 
         if run.attrs.contains(&TextAttribute::HeadingSeparator) {
@@ -180,7 +207,7 @@ pub fn apply_attribute_runs(
             if has_content_before {
                 // Add extra space above the heading paragraph so the separator
                 // line has visual breathing room.
-                let heading_style = make_para_style_with_spacing_before(9.6, 20.0);
+                let heading_style = build_para_style(ParaStyleConfig { line_spacing: 9.6, spacing_before: 20.0, ..Default::default() });
                 unsafe {
                     storage.addAttribute_value_range(
                         NSParagraphStyleAttributeName,
@@ -188,16 +215,27 @@ pub fn apply_attribute_runs(
                         range,
                     );
                 }
-                heading_sep_positions.push(start_u16);
+                heading_seps.push(range.location);
             }
         }
 
         if run.attrs.contains(&TextAttribute::ThematicBreak) {
-            thematic_break_positions.push(start_u16);
+            thematic_breaks.push(range.location);
         }
     }
+    (heading_seps, thematic_breaks)
+}
 
-    // ── Compute per-table grid data ──────────────────────────────────────
+/// Compute per-table grid data and apply table-specific text attributes.
+///
+/// Returns [`TableGrid`] values for each table — used by `MditTextView`
+/// to draw grid lines and borders.
+fn process_tables(
+    storage: &NSTextStorage,
+    text: &str,
+    table_infos: &[TableInfo],
+    text_len_u16: usize,
+) -> Vec<TableGrid> {
     let mut table_grids: Vec<TableGrid> = Vec::new();
     for table_info in table_infos {
         let start_u16 = byte_to_utf16(text, table_info.source_range.0);
@@ -225,13 +263,10 @@ pub fn apply_attribute_runs(
 
             // Apply vertical padding to each data row.
             for &(row_start, row_end) in &table_info.row_ranges {
-                let row_start_u16 = byte_to_utf16(text, row_start);
-                let row_end_u16 = byte_to_utf16(text, row_end);
-                if row_start_u16 >= row_end_u16 {
+                let Some(row_range) = mk_utf16_range(text, row_start, row_end, text_len_u16) else {
                     continue;
-                }
-                let row_range = NSRange { location: row_start_u16, length: row_end_u16 - row_start_u16 };
-                let style = make_table_row_para_style(0.0, 10.0, 10.0);
+                };
+                let style = build_para_style(ParaStyleConfig { spacing_before: 10.0, spacing_after: 10.0, ..Default::default() });
                 unsafe {
                     storage.addAttribute_value_range(
                         NSParagraphStyleAttributeName,
@@ -245,22 +280,14 @@ pub fn apply_attribute_runs(
             if table_info.row_ranges.len() >= 2 {
                 let sep_start = table_info.row_ranges[0].1;
                 let sep_end = table_info.row_ranges[1].0;
-                if sep_start < sep_end {
-                    let sep_start_u16 = byte_to_utf16(text, sep_start);
-                    let sep_end_u16 = byte_to_utf16(text, sep_end);
-                    if sep_start_u16 < sep_end_u16 {
-                        let sep_range = NSRange {
-                            location: sep_start_u16,
-                            length: sep_end_u16 - sep_start_u16,
-                        };
-                        let collapsed = make_collapsed_para_style();
-                        unsafe {
-                            storage.addAttribute_value_range(
-                                NSParagraphStyleAttributeName,
-                                collapsed.as_ref(),
-                                sep_range,
-                            );
-                        }
+                if let Some(sep_range) = mk_utf16_range(text, sep_start, sep_end, text_len_u16) {
+                    let collapsed = build_para_style(ParaStyleConfig { max_line_height: Some(0.001), ..Default::default() });
+                    unsafe {
+                        storage.addAttribute_value_range(
+                            NSParagraphStyleAttributeName,
+                            collapsed.as_ref(),
+                            sep_range,
+                        );
                     }
                 }
             }
@@ -299,7 +326,20 @@ pub fn apply_attribute_runs(
             });
         }
     }
+    table_grids
+}
 
+/// Apply paragraph styles and per-token syntax highlighting to code blocks.
+///
+/// Uses pre-computed UTF-16 offsets from `CodeBlockInfo` for paragraph
+/// styling; maps per-token byte offsets within the stored code text to
+/// UTF-16 document positions for syntax highlighting.
+fn apply_code_blocks(
+    storage: &NSTextStorage,
+    code_block_infos: &[CodeBlockInfo],
+    text_len_u16: usize,
+    scheme: &ColorScheme,
+) {
     // ── Apply horizontal padding (indent) to code blocks ───────────────
     for info in code_block_infos {
         if info.start_utf16 >= info.end_utf16 {
@@ -309,7 +349,7 @@ pub fn apply_attribute_runs(
             location: info.start_utf16,
             length: info.end_utf16 - info.start_utf16,
         };
-        let style = make_code_block_para_style(9.6, 10.0);
+        let style = build_para_style(ParaStyleConfig { line_spacing: 9.6, indent: 10.0, ..Default::default() });
         unsafe {
             storage.addAttribute_value_range(
                 NSParagraphStyleAttributeName,
@@ -358,12 +398,6 @@ pub fn apply_attribute_runs(
                 );
             }
         }
-    }
-
-    LayoutPositions {
-        heading_seps: heading_sep_positions,
-        thematic_breaks: thematic_break_positions,
-        table_grids,
     }
 }
 
@@ -555,10 +589,12 @@ fn serif_font(size: f64, bold: bool, italic: bool) -> Retained<NSFont> {
 
 /// Measure cell widths and add kern spacing so that all columns align.
 ///
-/// For each pair of adjacent pipes in a row, the content between them forms
-/// a column cell.  We measure every cell's rendered width (fonts are already
-/// applied), find the maximum per column, and add `NSKernAttributeName` to
-/// the last character before each trailing pipe to pad shorter cells.
+/// Uses a three-pass algorithm: (1) measure each cell's rendered width,
+/// (2) compute the maximum width per column, (3) kern the last character
+/// of shorter cells to pad them to the column maximum.
+///
+/// Must be called after all fonts have been applied to the storage, because
+/// rendered cell widths depend on the font metrics already in place.
 fn equalize_table_columns(
     storage: &NSTextStorage,
     text: &str,
@@ -659,65 +695,68 @@ fn equalize_table_columns(
 // Utility helpers
 // ---------------------------------------------------------------------------
 
+/// Configuration for building an `NSMutableParagraphStyle`.
+///
+/// All fields default to zero/`None`, which means "use AppKit default".
+/// Only set the fields that need non-default values.
+#[derive(Default)]
+struct ParaStyleConfig {
+    /// Additional line spacing below each line (points). Maps to `setLineSpacing`.
+    line_spacing: f64,
+    /// Extra space above the paragraph (points). Maps to `setParagraphSpacingBefore`.
+    spacing_before: f64,
+    /// Extra space below the paragraph (points). Maps to `setParagraphSpacing`.
+    spacing_after: f64,
+    /// Head/tail indent (points). Sets `setHeadIndent`, `setFirstLineHeadIndent`,
+    /// and `setTailIndent(-indent)` together.
+    indent: f64,
+    /// Maximum line height for collapsed rows (e.g. table separator row).
+    max_line_height: Option<f64>,
+}
+
+/// Build an `NSMutableParagraphStyle` from a [`ParaStyleConfig`].
+fn build_para_style(cfg: ParaStyleConfig) -> Retained<NSMutableParagraphStyle> {
+    let style = NSMutableParagraphStyle::new();
+    style.setLineSpacing(cfg.line_spacing);
+    if cfg.spacing_before != 0.0 {
+        style.setParagraphSpacingBefore(cfg.spacing_before);
+    }
+    if cfg.spacing_after != 0.0 {
+        style.setParagraphSpacing(cfg.spacing_after);
+    }
+    if cfg.indent != 0.0 {
+        style.setHeadIndent(cfg.indent);
+        style.setFirstLineHeadIndent(cfg.indent);
+        style.setTailIndent(-cfg.indent);
+    }
+    if let Some(max_h) = cfg.max_line_height {
+        style.setMaximumLineHeight(max_h);
+    }
+    style
+}
+
 /// Build an `NSColor` from an sRGB float tuple.
 fn make_color((r, g, b): (f64, f64, f64)) -> Retained<NSColor> {
     NSColor::colorWithRed_green_blue_alpha(r, g, b, 1.0)
 }
 
-/// Build an `NSMutableParagraphStyle` with the given `line_spacing` (in points).
-fn make_para_style(line_spacing: f64) -> Retained<NSMutableParagraphStyle> {
-    let style = NSMutableParagraphStyle::new();
-    style.setLineSpacing(line_spacing);
-    style
-}
 
-/// Build an `NSMutableParagraphStyle` with both line spacing and extra space
-/// above the paragraph (used for H1/H2 headings to host the separator line).
-fn make_para_style_with_spacing_before(
-    line_spacing: f64,
-    spacing_before: f64,
-) -> Retained<NSMutableParagraphStyle> {
-    let style = NSMutableParagraphStyle::new();
-    style.setLineSpacing(line_spacing);
-    style.setParagraphSpacingBefore(spacing_before);
-    style
-}
-
-/// Build an `NSMutableParagraphStyle` for table rows with vertical cell padding.
-fn make_table_row_para_style(
-    line_spacing: f64,
-    spacing_before: f64,
-    spacing_after: f64,
-) -> Retained<NSMutableParagraphStyle> {
-    let style = NSMutableParagraphStyle::new();
-    style.setLineSpacing(line_spacing);
-    style.setParagraphSpacingBefore(spacing_before);
-    style.setParagraphSpacing(spacing_after);
-    style
-}
-
-/// Build an `NSMutableParagraphStyle` for code block content with horizontal padding.
-fn make_code_block_para_style(
-    line_spacing: f64,
-    indent: f64,
-) -> Retained<NSMutableParagraphStyle> {
-    let style = NSMutableParagraphStyle::new();
-    style.setLineSpacing(line_spacing);
-    style.setHeadIndent(indent);
-    style.setFirstLineHeadIndent(indent);
-    style.setTailIndent(-indent); // negative = inset from trailing margin
-    style
-}
-
-/// Build a paragraph style that collapses a line to near-zero height.
-/// Used for the table separator row (`| --- | --- |`) which must be invisible.
-fn make_collapsed_para_style() -> Retained<NSMutableParagraphStyle> {
-    let style = NSMutableParagraphStyle::new();
-    style.setLineSpacing(0.0);
-    style.setParagraphSpacingBefore(0.0);
-    style.setParagraphSpacing(0.0);
-    style.setMaximumLineHeight(0.001);
-    style
+/// Convert a UTF-8 byte range to an `NSRange` (UTF-16 code-unit offsets).
+///
+/// Returns `None` if the range is empty or would exceed `text_len_u16`,
+/// allowing call sites to `continue` a loop with a single `let-else`.
+fn mk_utf16_range(
+    text: &str,
+    byte_start: usize,
+    byte_end: usize,
+    text_len_u16: usize,
+) -> Option<NSRange> {
+    let start_u16 = byte_to_utf16(text, byte_start);
+    let end_u16 = byte_to_utf16(text, byte_end);
+    if start_u16 >= end_u16 || end_u16 > text_len_u16 {
+        return None;
+    }
+    Some(NSRange { location: start_u16, length: end_u16 - start_u16 })
 }
 
 /// Convert a UTF-8 byte offset in `text` to a UTF-16 code-unit offset.
