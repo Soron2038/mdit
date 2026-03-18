@@ -32,10 +32,20 @@ const GROUP_GAP: f64 = 10.0;
 const ICON_SIZE: f64 = 14.0;
 const PILL_RADIUS: f64 = 4.0;
 
+// NSTrackingArea option flags (not exposed as typed constants in objc2 0.6).
+// Values from NSTrackingAreaOptions in AppKit headers.
+const NS_TRACKING_MOUSE_ENTERED_AND_EXITED: usize = 0x01;
+const NS_TRACKING_MOUSE_MOVED: usize = 0x02;
+const NS_TRACKING_ACTIVE_IN_ACTIVE_APP: usize = 0x20;
+
 // ---------------------------------------------------------------------------
 // Button descriptors
 // ---------------------------------------------------------------------------
 
+/// Describes the visual style of a sidebar button.
+///
+/// `StyledText` buttons (H1/H2/H3) use font size and weight to create a visual
+/// hierarchy without SF Symbols, since AppKit's symbol library lacks heading variants.
 enum ButtonKind {
     SfSymbol(&'static str),
     StyledText {
@@ -170,6 +180,11 @@ const BTN_DEFS: &[ButtonDef] = &[
 // SidebarButtonView — custom NSView subclass
 // ---------------------------------------------------------------------------
 
+/// Custom NSView that draws formatting buttons with hover/press feedback.
+///
+/// Each button is a 28×28 pt square positioned in a column along the left edge,
+/// with SF Symbol icons (or styled text for headings). On hover or press, a rounded
+/// pill background appears and the icon is tinted with the accent color.
 #[doc(hidden)]
 pub struct SidebarButtonViewIvars {
     /// Index of the button currently under the mouse, or `None`.
@@ -213,8 +228,9 @@ define_class!(
                 let _: () = unsafe { msg_send![self, removeTrackingArea: &**old] };
             }
 
-            // NSTrackingMouseEnteredAndExited | NSTrackingMouseMoved | NSTrackingActiveInActiveApp
-            let options: usize = 0x01 | 0x02 | 0x20;
+            let options: usize = NS_TRACKING_MOUSE_ENTERED_AND_EXITED
+                | NS_TRACKING_MOUSE_MOVED
+                | NS_TRACKING_ACTIVE_IN_ACTIVE_APP;
             let bounds = self.bounds();
 
             let cls = AnyClass::get(c"NSTrackingArea")
@@ -543,8 +559,7 @@ impl FormattingSidebar {
 
     /// Refresh the right-border color from the current system separatorColor.
     ///
-    /// Call this once during setup and again whenever the system appearance
-    /// changes.
+    /// Call this once during setup and again whenever the system appearance changes.
     pub fn apply_separator_color(&self) {
         if let Some(layer) = self.border.layer() {
             let color = NSColor::separatorColor();
@@ -555,6 +570,8 @@ impl FormattingSidebar {
     }
 
     /// Update the sidebar height on window resize.
+    ///
+    /// Resizes all internal views and recomputes button origins to match the new height.
     pub fn set_height(&self, height: f64) {
         // Resize container.
         let mut f = self.container.frame();
