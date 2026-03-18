@@ -450,6 +450,11 @@ impl FindBar {
         set_layer_bg(&self.border, (0.784, 0.722, 0.604));
     }
 
+    /// Set the AppDelegate as the search field's delegate (for live search).
+    pub fn set_search_delegate(&self, delegate: &AnyObject) {
+        unsafe { let _: () = msg_send![&*self.search_field, setDelegate: delegate]; }
+    }
+
     // ── Private helpers ───────────────────────────────────────────────────────
 
     fn update_aa_visual(&self) {

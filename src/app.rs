@@ -1,4 +1,4 @@
-use std::cell::{OnceCell, RefCell};
+use std::cell::{Cell, OnceCell, RefCell};
 use std::path::PathBuf;
 use std::ptr::NonNull;
 
@@ -8,9 +8,9 @@ use objc2::runtime::{AnyClass, AnyObject, ProtocolObject};
 use objc2::{define_class, msg_send, sel, DefinedClass, MainThreadOnly};
 use objc2_app_kit::{
     NSAnimationContext, NSAppearanceNameAqua, NSAppearanceNameDarkAqua, NSApplication,
-    NSApplicationActivationPolicy, NSApplicationDelegate, NSBackingStoreType, NSBezelStyle,
-    NSButton, NSColor, NSControl, NSImage, NSTextDelegate, NSTextView, NSTextViewDelegate,
-    NSView, NSWindow, NSWindowDelegate, NSWindowStyleMask,
+    NSApplicationActivationPolicy, NSApplicationDelegate, NSBackgroundColorAttributeName,
+    NSBackingStoreType, NSBezelStyle, NSButton, NSColor, NSControl, NSImage, NSTextDelegate,
+    NSTextView, NSTextViewDelegate, NSView, NSWindow, NSWindowDelegate, NSWindowStyleMask,
 };
 use objc2_foundation::{
     ns_string, MainThreadMarker, NSArray, NSNotification, NSObject, NSObjectProtocol, NSPoint,
@@ -23,6 +23,7 @@ use mdit::editor::tab_manager::{TabCloseResult, TabManager};
 use mdit::editor::view_mode::ViewMode;
 use mdit::menu::build_main_menu;
 use mdit::ui::appearance::ColorScheme;
+use mdit::ui::find_bar::{FindBar, FIND_H_COMPACT, FIND_H_EXPANDED};
 use mdit::ui::path_bar::PathBar;
 use mdit::ui::sidebar::{FormattingSidebar, SIDEBAR_W};
 use mdit::ui::tab_bar::TabBar;
@@ -50,11 +51,16 @@ fn sidebar_target_frame(mode: ViewMode, content_h: f64) -> NSRect {
 ///
 /// - Viewer → x: 0, full window width
 /// - Editor → x: SIDEBAR_W, reduced width
-fn content_target_frame(mode: ViewMode, win_w: f64, win_h: f64) -> NSRect {
+///
+/// `find_offset` is the height of the find bar (0.0 when hidden).
+fn content_target_frame(mode: ViewMode, find_offset: f64, win_w: f64, win_h: f64) -> NSRect {
     let sidebar_w = if mode == ViewMode::Editor { SIDEBAR_W } else { 0.0 };
     NSRect::new(
-        NSPoint::new(sidebar_w, PATH_H),
-        NSSize::new((win_w - sidebar_w).max(0.0), (win_h - TAB_H - PATH_H).max(0.0)),
+        NSPoint::new(sidebar_w, PATH_H + find_offset),
+        NSSize::new(
+            (win_w - sidebar_w).max(0.0),
+            (win_h - TAB_H - PATH_H - find_offset).max(0.0),
+        ),
     )
 }
 
@@ -71,6 +77,12 @@ struct AppDelegateIvars {
     tab_manager: RefCell<TabManager>,
     /// File path received via `application:openFile:` before the window exists.
     pending_open: RefCell<Option<PathBuf>>,
+    // ── Find bar state ───────────────────────────────────────────────────
+    find_bar: OnceCell<FindBar>,
+    find_matches: RefCell<Vec<NSRange>>,
+    find_current: Cell<usize>,
+    /// 0.0 = hidden; FIND_H_COMPACT or FIND_H_EXPANDED when visible.
+    find_bar_height: Cell<f64>,
 }
 
 define_class!(
@@ -147,6 +159,16 @@ define_class!(
             }
             if let Some(pb) = self.ivars().path_bar.get() {
                 pb.set_width(w);
+            }
+            if let Some(fb) = self.ivars().find_bar.get() {
+                let fh = self.ivars().find_bar_height.get();
+                fb.set_width(w);
+                if fh > 0.0 {
+                    fb.view().setFrame(NSRect::new(
+                        NSPoint::new(0.0, PATH_H),
+                        NSSize::new(w, fh),
+                    ));
+                }
             }
             if let Some(sb) = self.ivars().sidebar.get() {
                 let content_h = (h - TAB_H - PATH_H).max(0.0);
@@ -313,6 +335,109 @@ define_class!(
                 unsafe { msg_send![&*tv, insertText: &*ns, replacementRange: caret] }
             }
         }
+
+        // ── Find bar actions ──────────────────────────────────────────────
+
+        #[unsafe(method(openFindBar:))]
+        fn open_find_bar_action(&self, _sender: &AnyObject) {
+            self.open_find_bar();
+        }
+
+        #[unsafe(method(closeFindBar:))]
+        fn close_find_bar_action(&self, _sender: &AnyObject) {
+            self.close_find_bar();
+        }
+
+        #[unsafe(method(findNext:))]
+        fn find_next_action(&self, _sender: &AnyObject) {
+            // If find bar isn't open, open it instead of cycling
+            if self.ivars().find_bar_height.get() == 0.0 {
+                self.open_find_bar();
+                return;
+            }
+            let matches = self.ivars().find_matches.borrow();
+            let count = matches.len();
+            if count == 0 { return; }
+            drop(matches);
+            let current = self.ivars().find_current.get();
+            let next = (current + 1) % count;
+            self.ivars().find_current.set(next);
+            self.highlight_current_match();
+            self.scroll_to_current_match();
+            if let Some(fb) = self.ivars().find_bar.get() {
+                fb.update_count(next + 1, count);
+            }
+        }
+
+        #[unsafe(method(findPrevious:))]
+        fn find_previous_action(&self, _sender: &AnyObject) {
+            let matches = self.ivars().find_matches.borrow();
+            let count = matches.len();
+            if count == 0 { return; }
+            drop(matches);
+            let current = self.ivars().find_current.get();
+            let prev = if current == 0 { count - 1 } else { current - 1 };
+            self.ivars().find_current.set(prev);
+            self.highlight_current_match();
+            self.scroll_to_current_match();
+            if let Some(fb) = self.ivars().find_bar.get() {
+                fb.update_count(prev + 1, count);
+            }
+        }
+
+        #[unsafe(method(findBarToggleAa:))]
+        fn find_bar_toggle_aa(&self, _sender: &AnyObject) {
+            if let Some(fb) = self.ivars().find_bar.get() {
+                fb.toggle_case_sensitive();
+            }
+            self.perform_search();
+        }
+
+        #[unsafe(method(replaceOne:))]
+        fn replace_one_action(&self, _sender: &AnyObject) {
+            let Some(fb) = self.ivars().find_bar.get() else { return };
+            let replace_str = fb.replace_text();
+            let current = self.ivars().find_current.get();
+            let range = {
+                let matches = self.ivars().find_matches.borrow();
+                matches.get(current).copied()
+            };
+            let Some(range) = range else { return };
+            let tm = self.ivars().tab_manager.borrow();
+            let Some(tab) = tm.active() else { return };
+            if let Some(storage) = unsafe { tab.text_view.textStorage() } {
+                let ns_replace = NSString::from_str(&replace_str);
+                storage.replaceCharactersInRange_withString(range, &ns_replace);
+            }
+            drop(tm);
+            self.perform_search();
+        }
+
+        #[unsafe(method(replaceAll:))]
+        fn replace_all_action(&self, _sender: &AnyObject) {
+            let Some(fb) = self.ivars().find_bar.get() else { return };
+            let replace_str = fb.replace_text();
+            let ranges: Vec<NSRange> = self.ivars().find_matches.borrow().clone();
+            if ranges.is_empty() { return; }
+            let tm = self.ivars().tab_manager.borrow();
+            let Some(tab) = tm.active() else { return };
+            if let Some(storage) = unsafe { tab.text_view.textStorage() } {
+                let ns_replace = NSString::from_str(&replace_str);
+                // Replace in reverse order to preserve offsets
+                for range in ranges.iter().rev() {
+                    storage.replaceCharactersInRange_withString(*range, &ns_replace);
+                }
+            }
+            drop(tm);
+            self.perform_search();
+        }
+
+        // ── Live search delegate ──────────────────────────────────────────
+
+        #[unsafe(method(controlTextDidChange:))]
+        fn control_text_did_change(&self, _notification: &NSNotification) {
+            self.perform_search();
+        }
     }
 
     // ── NSTextViewDelegate: show/hide toolbar on selection ──────────────────
@@ -425,9 +550,22 @@ impl AppDelegate {
         ));
         content.addSubview(sidebar.view());
 
+        // FindBar — hidden initially, positioned above PathBar
+        let find_bar = FindBar::new(mtm, w, target);
+        find_bar.view().setFrame(NSRect::new(
+            NSPoint::new(0.0, PATH_H),
+            NSSize::new(w, 0.0), // zero height = hidden
+        ));
+        content.addSubview(find_bar.view());
+
+        // Wire AppDelegate as search field delegate for live search
+        let self_obj: &AnyObject = unsafe { &*(self as *const AppDelegate as *const AnyObject) };
+        find_bar.set_search_delegate(self_obj);
+
         let _ = self.ivars().tab_bar.set(tab_bar);
         let _ = self.ivars().path_bar.set(path_bar);
         let _ = self.ivars().sidebar.set(sidebar);
+        let _ = self.ivars().find_bar.set(find_bar);
     }
 
     /// Frame for the active NSScrollView, positioned between the tab bar and path bar.
@@ -443,7 +581,8 @@ impl AppDelegate {
             .active()
             .map(|t| t.mode.get())
             .unwrap_or(ViewMode::Viewer);
-        content_target_frame(mode, bounds.size.width, bounds.size.height)
+        let find_offset = self.ivars().find_bar_height.get();
+        content_target_frame(mode, find_offset, bounds.size.width, bounds.size.height)
     }
 
     /// Returns true if the active tab is in Editor mode.
@@ -489,7 +628,8 @@ impl AppDelegate {
         let content_h = (win_h - TAB_H - PATH_H).max(0.0);
 
         let target_sb_frame = sidebar_target_frame(new_mode, content_h);
-        let target_sv_frame = content_target_frame(new_mode, win_w, win_h);
+        let find_offset = self.ivars().find_bar_height.get();
+        let target_sv_frame = content_target_frame(new_mode, find_offset, win_w, win_h);
 
         // ── 4. Animated frame changes ──────────────────────────────────────────
         let Some(sb) = self.ivars().sidebar.get() else { return };
@@ -525,6 +665,12 @@ impl AppDelegate {
             &animation_block,
             None::<&block2::DynBlock<dyn Fn()>>,
         );
+
+        // Update find bar replace-row visibility based on new mode
+        if self.ivars().find_bar_height.get() > 0.0 {
+            let count = self.ivars().find_matches.borrow().len();
+            self.update_find_bar_height_for_matches(count, new_mode);
+        }
     }
 
     /// Open a file by path — used by both the Open dialog and Finder/Dock open events.
@@ -620,6 +766,9 @@ impl AppDelegate {
 
     /// Switch to tab `index`.
     fn switch_to_tab(&self, index: usize) {
+        // Reset find bar state on tab switch
+        self.close_find_bar();
+
         let Some(win) = self.ivars().window.get() else {
             return;
         };
@@ -713,6 +862,9 @@ impl AppDelegate {
 
     /// Close tab at `index` — dirty-check, then remove (or clear if last).
     fn close_tab(&self, index: usize) {
+        // Close find bar before closing tab
+        self.close_find_bar();
+
         let (is_dirty, filename) = {
             let tm = self.ivars().tab_manager.borrow();
             let tab = match tm.get(index) {
@@ -881,6 +1033,214 @@ impl AppDelegate {
                 .setTextContainerInset(NSSize::new(h_inset, 40.0));
         }
     }
+
+    // ── Find bar private methods ──────────────────────────────────────────
+
+    /// Open the find bar (or re-focus it if already visible).
+    fn open_find_bar(&self) {
+        let Some(fb) = self.ivars().find_bar.get() else { return };
+        let Some(win) = self.ivars().window.get() else { return };
+        let w = win.contentView().unwrap().bounds().size.width;
+        let h = FIND_H_COMPACT;
+        self.ivars().find_bar_height.set(h);
+        fb.view().setFrame(NSRect::new(NSPoint::new(0.0, PATH_H), NSSize::new(w, h)));
+        fb.set_height(h);
+        fb.show();
+        // Resize scroll view to make room
+        let frame = self.content_frame();
+        let tm = self.ivars().tab_manager.borrow();
+        if let Some(t) = tm.active() {
+            t.scroll_view.setFrame(frame);
+        }
+        drop(tm);
+        // Focus search field and run search if there's already a query
+        fb.focus_search();
+        self.perform_search();
+    }
+
+    /// Run a search against the active tab's text and update highlights + count.
+    fn perform_search(&self) {
+        let Some(fb) = self.ivars().find_bar.get() else { return };
+        // Bar must be visible
+        if self.ivars().find_bar_height.get() == 0.0 { return; }
+
+        let query = fb.search_text();
+
+        // Get active tab text
+        let (storage, tab_mode) = {
+            let tm = self.ivars().tab_manager.borrow();
+            let Some(tab) = tm.active() else { return };
+            let storage = unsafe { tab.text_view.textStorage() };
+            (storage, tab.mode.get())
+        };
+        let Some(storage) = storage else { return };
+
+        // Remove previous highlights from old match ranges
+        let old_matches: Vec<NSRange> = self.ivars().find_matches.borrow().clone();
+        for range in &old_matches {
+            unsafe {
+                storage.removeAttribute_range(
+                    NSBackgroundColorAttributeName,
+                    *range,
+                );
+            }
+        }
+
+        if query.is_empty() {
+            // Clear state
+            *self.ivars().find_matches.borrow_mut() = Vec::new();
+            self.ivars().find_current.set(0);
+            fb.update_count(0, 0);
+            fb.set_no_match(false);
+            // Update replace row visibility
+            self.update_find_bar_height_for_matches(0, tab_mode);
+            return;
+        }
+
+        // Find all matches
+        let ns_query = NSString::from_str(&query);
+        let case_sensitive = fb.is_case_sensitive();
+        let matches = find_all_ranges(&storage.string(), &ns_query, !case_sensitive);
+        let count = matches.len();
+
+        // Clamp current index
+        let current = self.ivars().find_current.get().min(count.saturating_sub(1));
+        self.ivars().find_current.set(current);
+        *self.ivars().find_matches.borrow_mut() = matches.clone();
+
+        // Apply highlight attributes
+        let all_match_color = NSColor::colorWithRed_green_blue_alpha(1.0, 0.97, 0.82, 1.0);
+        let current_match_color = NSColor::colorWithRed_green_blue_alpha(1.0, 0.93, 0.70, 1.0);
+        for (i, &range) in matches.iter().enumerate() {
+            let color = if i == current { &current_match_color } else { &all_match_color };
+            unsafe {
+                storage.addAttribute_value_range(
+                    NSBackgroundColorAttributeName,
+                    color,
+                    range,
+                );
+            }
+        }
+
+        // Update count label and no-match styling
+        if count > 0 {
+            fb.update_count(current + 1, count);
+            fb.set_no_match(false);
+            self.scroll_to_current_match();
+        } else {
+            fb.update_count(0, 0);
+            fb.set_no_match(true);
+        }
+
+        // Show/hide replace row based on matches + mode
+        self.update_find_bar_height_for_matches(count, tab_mode);
+    }
+
+    /// Show or hide the replace row, updating bar height and scroll view frame as needed.
+    fn update_find_bar_height_for_matches(&self, match_count: usize, mode: ViewMode) {
+        let Some(fb) = self.ivars().find_bar.get() else { return };
+        let Some(win) = self.ivars().window.get() else { return };
+        let w = win.contentView().unwrap().bounds().size.width;
+
+        let show_replace = match_count > 0 && mode == ViewMode::Editor;
+        fb.show_replace_row(show_replace);
+
+        let new_h = if show_replace { FIND_H_EXPANDED } else { FIND_H_COMPACT };
+        let old_h = self.ivars().find_bar_height.get();
+        if (new_h - old_h).abs() > 0.5 && old_h > 0.0 {
+            self.ivars().find_bar_height.set(new_h);
+            fb.set_height(new_h);
+            fb.view().setFrame(NSRect::new(NSPoint::new(0.0, PATH_H), NSSize::new(w, new_h)));
+            let frame = self.content_frame();
+            let tm = self.ivars().tab_manager.borrow();
+            if let Some(t) = tm.active() {
+                t.scroll_view.setFrame(frame);
+            }
+        }
+    }
+
+    /// Scroll the text view so the current match is visible and select it.
+    fn scroll_to_current_match(&self) {
+        let matches = self.ivars().find_matches.borrow();
+        let current = self.ivars().find_current.get();
+        let Some(&range) = matches.get(current) else { return };
+        drop(matches);
+        let tm = self.ivars().tab_manager.borrow();
+        let Some(tab) = tm.active() else { return };
+        unsafe {
+            let _: () = msg_send![&*tab.text_view, scrollRangeToVisible: range];
+            let _: () = msg_send![&*tab.text_view, setSelectedRange: range];
+        }
+    }
+
+    /// Highlight the current match (update background colors).
+    fn highlight_current_match(&self) {
+        let storage_opt = {
+            let tm = self.ivars().tab_manager.borrow();
+            tm.active().and_then(|t| unsafe { t.text_view.textStorage() })
+        };
+        let Some(storage) = storage_opt else { return };
+
+        let matches = self.ivars().find_matches.borrow().clone();
+        let current = self.ivars().find_current.get();
+        let all_color = NSColor::colorWithRed_green_blue_alpha(1.0, 0.97, 0.82, 1.0);
+        let current_color = NSColor::colorWithRed_green_blue_alpha(1.0, 0.93, 0.70, 1.0);
+        for (i, &range) in matches.iter().enumerate() {
+            let color = if i == current { &current_color } else { &all_color };
+            unsafe {
+                storage.addAttribute_value_range(
+                    NSBackgroundColorAttributeName,
+                    color,
+                    range,
+                );
+            }
+        }
+    }
+
+    /// Close the find bar, remove highlights, and restore the scroll view.
+    fn close_find_bar(&self) {
+        let Some(fb) = self.ivars().find_bar.get() else { return };
+        if self.ivars().find_bar_height.get() == 0.0 { return; }
+
+        // Remove all highlights
+        let matches: Vec<NSRange> = self.ivars().find_matches.borrow().clone();
+        if !matches.is_empty() {
+            let tm = self.ivars().tab_manager.borrow();
+            if let Some(tab) = tm.active() {
+                if let Some(storage) = unsafe { tab.text_view.textStorage() } {
+                    for &range in &matches {
+                        unsafe {
+                            storage.removeAttribute_range(
+                                NSBackgroundColorAttributeName,
+                                range,
+                            );
+                        }
+                    }
+                    // Re-render to restore legitimate highlight colors
+                    tab.editor_delegate.reapply(&storage);
+                }
+            }
+        }
+
+        *self.ivars().find_matches.borrow_mut() = Vec::new();
+        self.ivars().find_current.set(0);
+        self.ivars().find_bar_height.set(0.0);
+        fb.hide();
+        fb.show_replace_row(false);
+        fb.update_count(0, 0);
+        fb.set_no_match(false);
+
+        // Restore scroll view to full height
+        let frame = self.content_frame();
+        let tm = self.ivars().tab_manager.borrow();
+        if let Some(t) = tm.active() {
+            t.scroll_view.setFrame(frame);
+            // Return focus to text view
+            if let Some(win) = self.ivars().window.get() {
+                unsafe { let _: () = msg_send![&**win, makeFirstResponder: &*t.text_view]; }
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -998,6 +1358,31 @@ fn insert_code_block(tv: &NSTextView) {
     let text = mdit::editor::formatting::compute_code_block_wrap(&selected);
     let ns = NSString::from_str(&text);
     unsafe { msg_send![tv, insertText: &*ns, replacementRange: range] }
+}
+
+// ---------------------------------------------------------------------------
+// Find‐all helper
+// ---------------------------------------------------------------------------
+
+/// Find all occurrences of `query` in `text`, returning NSRange for each match.
+/// Uses NSString's rangeOfString:options:range: for proper Unicode + UTF-16 handling.
+fn find_all_ranges(text: &NSString, query: &NSString, case_insensitive: bool) -> Vec<NSRange> {
+    let mut ranges = Vec::new();
+    let len = text.length();
+    if len == 0 || query.length() == 0 { return ranges; }
+    let options: usize = if case_insensitive { 1 } else { 0 }; // NSCaseInsensitiveSearch = 1
+    let mut search_from = NSRange { location: 0, length: len };
+    loop {
+        let found: NSRange = unsafe {
+            msg_send![text, rangeOfString: query, options: options, range: search_from]
+        };
+        if found.location >= usize::MAX / 2 { break; } // NSNotFound
+        ranges.push(found);
+        let next_loc = found.location + found.length.max(1);
+        if next_loc >= len { break; }
+        search_from = NSRange { location: next_loc, length: len - next_loc };
+    }
+    ranges
 }
 
 // ---------------------------------------------------------------------------
@@ -1148,22 +1533,29 @@ mod tests {
 
     #[test]
     fn content_frame_viewer_starts_at_zero() {
-        let f = content_target_frame(ViewMode::Viewer, 1000.0, 700.0);
+        let f = content_target_frame(ViewMode::Viewer, 0.0, 1000.0, 700.0);
         assert_eq!(f.origin.x, 0.0);
         assert_eq!(f.size.width, 1000.0);
     }
 
     #[test]
     fn content_frame_editor_offset_by_sidebar() {
-        let f = content_target_frame(ViewMode::Editor, 1000.0, 700.0);
+        let f = content_target_frame(ViewMode::Editor, 0.0, 1000.0, 700.0);
         assert_eq!(f.origin.x, SIDEBAR_W);
         assert_eq!(f.size.width, 1000.0 - SIDEBAR_W);
     }
 
     #[test]
     fn content_frame_height_excludes_bars() {
-        let f = content_target_frame(ViewMode::Viewer, 800.0, 700.0);
+        let f = content_target_frame(ViewMode::Viewer, 0.0, 800.0, 700.0);
         assert_eq!(f.origin.y, PATH_H);
         assert_eq!(f.size.height, 700.0 - TAB_H - PATH_H);
+    }
+
+    #[test]
+    fn content_frame_with_find_bar_offset() {
+        let f = content_target_frame(ViewMode::Viewer, FIND_H_COMPACT, 800.0, 700.0);
+        assert_eq!(f.origin.y, PATH_H + FIND_H_COMPACT);
+        assert_eq!(f.size.height, 700.0 - TAB_H - PATH_H - FIND_H_COMPACT);
     }
 }
