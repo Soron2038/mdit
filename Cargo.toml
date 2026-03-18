@@ -13,6 +13,7 @@ path = "src/lib.rs"
 
 [dependencies]
 objc2 = "0.6.3"
+block2 = "0.6"
 objc2-foundation = { version = "0.3.2", features = [
     "NSString", "NSAttributedString",
     "NSDictionary", "NSArray", "NSURL", "NSData",
@@ -38,7 +39,12 @@ objc2-app-kit = { version = "0.3.2", features = [
     "NSBezierPath",
     "NSPasteboard",
     "NSImage",
+    "NSAnimation",
+    "NSAnimationContext",
+    "block2",
+    "objc2-quartz-core",
 ] }
+objc2-quartz-core = { version = "0.3", features = ["CAMediaTimingFunction"] }
 objc2-web-kit = { version = "0.3.2", features = [
     "WKWebView",
     "WKWebViewConfiguration",
