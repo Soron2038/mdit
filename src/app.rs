@@ -1016,7 +1016,7 @@ fn add_titlebar_accessory(window: &NSWindow, mtm: MainThreadMarker, target: &Any
         if vc.is_null() { return; }
         let vc_ret = Retained::retain(vc).expect("NSTitlebarAccessoryViewController");
         let _: () = msg_send![&*vc_ret, setView: &*acc_view];
-        let _: () = msg_send![&*vc_ret, setLayoutAttribute: 12isize];
+        let _: () = msg_send![&*vc_ret, setLayoutAttribute: 2isize];  // NSLayoutAttributeRight
         let _: () = msg_send![window, addTitlebarAccessoryViewController: &*vc_ret];
     }
 }

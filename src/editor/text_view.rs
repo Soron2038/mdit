@@ -15,6 +15,10 @@ use crate::editor::apply::TableGrid;
 use crate::editor::view_mode::ViewMode;
 use crate::ui::appearance::ColorScheme;
 
+// Visual constants for code-block overlay drawing.
+const CODE_BLOCK_HEADER_H: f64 = 22.0; // height of the language title row
+const CODE_BLOCK_STRIPE_W: f64 = 3.0;  // width of the left accent stripe
+
 // ---------------------------------------------------------------------------
 // MditTextView — NSTextView subclass that draws H1/H2 separator lines
 // ---------------------------------------------------------------------------
@@ -311,7 +315,7 @@ impl MditTextView {
             let _: () = unsafe { msg_send![ctx_cls, saveGraphicsState] };
             let clip_path = NSBezierPath::bezierPath();
             for rect in &rects {
-                let rounded = NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(*rect, 6.0, 6.0);
+                let rounded = NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(*rect, 8.0, 8.0);
                 clip_path.appendBezierPath(&rounded);
             }
             clip_path.addClip();
@@ -381,7 +385,7 @@ impl MditTextView {
             let _: () = unsafe { msg_send![ctx_cls, saveGraphicsState] };
             let clip_path = NSBezierPath::bezierPath();
             for rect in &rects {
-                let rounded = NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(*rect, 6.0, 6.0);
+                let rounded = NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(*rect, 8.0, 8.0);
                 clip_path.appendBezierPath(&rounded);
             }
             clip_path.addClip();
@@ -506,13 +510,28 @@ impl MditTextView {
             return;
         }
         let (r, g, b) = delegate.scheme().table_bg;
+        let (ar, ag, ab) = delegate.scheme().accent;
         drop(delegate_ref);
         let fill_color = NSColor::colorWithRed_green_blue_alpha(r, g, b, 1.0);
         for block_rect in &rects {
             let path =
-                NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(*block_rect, 6.0, 6.0);
+                NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(*block_rect, 8.0, 8.0);
             fill_color.setFill();
             path.fill();
+
+            // Left accent stripe — same as code blocks.
+            let ctx_cls = objc2::runtime::AnyClass::get(c"NSGraphicsContext").unwrap();
+            let _: () = unsafe { msg_send![ctx_cls, saveGraphicsState] };
+            let clip =
+                NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(*block_rect, 8.0, 8.0);
+            clip.addClip();
+            let stripe = NSRect::new(
+                block_rect.origin,
+                NSSize::new(CODE_BLOCK_STRIPE_W, block_rect.size.height),
+            );
+            NSColor::colorWithRed_green_blue_alpha(ar, ag, ab, 0.85).setFill();
+            NSRectFill(stripe);
+            let _: () = unsafe { msg_send![ctx_cls, restoreGraphicsState] };
         }
     }
 
@@ -529,7 +548,7 @@ impl MditTextView {
         let rects = self.table_rects_from_grids(&grids);
         for block_rect in &rects {
             let border_path =
-                NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(*block_rect, 6.0, 6.0);
+                NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(*block_rect, 8.0, 8.0);
             border_path.setLineWidth(1.0);
             NSColor::tertiaryLabelColor().setStroke();
             border_path.stroke();
@@ -600,16 +619,16 @@ impl MditTextView {
                 continue;
             }
 
-            // ── Build full-width block rect (7pt vertical padding) ────────────
-            let block_y = top_frag.origin.y + tc_origin.y - 7.0;
-            let block_bottom = bot_frag.origin.y + bot_frag.size.height + tc_origin.y + 7.0;
+            // ── Build full-width block rect (8pt vertical padding) ────────────
+            let block_y = top_frag.origin.y + tc_origin.y - 8.0;
+            let block_bottom = bot_frag.origin.y + bot_frag.size.height + tc_origin.y + 8.0;
             let block_rect = NSRect::new(
                 NSPoint::new(tc_origin.x, block_y),
                 NSSize::new(container_width, block_bottom - block_y),
             );
 
             let icon_x = block_rect.origin.x + block_rect.size.width - 20.0;
-            let icon_y = block_rect.origin.y + 6.0;
+            let icon_y = block_rect.origin.y + (CODE_BLOCK_HEADER_H - 14.0) / 2.0;
             let icon_rect = NSRect::new(NSPoint::new(icon_x, icon_y), NSSize::new(14.0, 14.0));
 
             result.push((
@@ -643,11 +662,31 @@ impl MditTextView {
                 None => return,
             }
         };
+        let accent = {
+            let delegate_ref = self.ivars().delegate.borrow();
+            delegate_ref.as_ref().map(|d| d.scheme().accent)
+        };
         for (block_rect, _, _, _) in rects {
             let path =
-                NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(block_rect, 6.0, 6.0);
+                NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(block_rect, 8.0, 8.0);
             fill_color.setFill();
             path.fill();
+
+            // Left accent stripe — clipped to the rounded rect.
+            if let Some((ar, ag, ab)) = accent {
+                let ctx_cls = objc2::runtime::AnyClass::get(c"NSGraphicsContext").unwrap();
+                let _: () = unsafe { msg_send![ctx_cls, saveGraphicsState] };
+                let clip =
+                    NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(block_rect, 8.0, 8.0);
+                clip.addClip();
+                let stripe = NSRect::new(
+                    block_rect.origin,
+                    NSSize::new(CODE_BLOCK_STRIPE_W, block_rect.size.height),
+                );
+                NSColor::colorWithRed_green_blue_alpha(ar, ag, ab, 0.85).setFill();
+                NSRectFill(stripe);
+                let _: () = unsafe { msg_send![ctx_cls, restoreGraphicsState] };
+            }
         }
     }
 
@@ -660,6 +699,14 @@ impl MditTextView {
         let rects = self.code_block_rects();
         for (index, (block_rect, icon_rect, code_text, language)) in rects.into_iter().enumerate() {
             self.draw_code_block_border(block_rect);
+            // Header separator — 0.5pt horizontal line below the title row.
+            let sep_y = block_rect.origin.y + CODE_BLOCK_HEADER_H;
+            let sep_rect = NSRect::new(
+                NSPoint::new(block_rect.origin.x, sep_y),
+                NSSize::new(block_rect.size.width, 0.5),
+            );
+            NSColor::tertiaryLabelColor().setFill();
+            NSRectFill(sep_rect);
             self.draw_code_block_language_tag(block_rect, &language);
             self.draw_code_block_copy_icon(index, icon_rect);
             self.ivars().overlay.borrow_mut().button_rects.push((icon_rect, code_text));
@@ -669,7 +716,7 @@ impl MditTextView {
     /// Stroke a rounded-rect border for a single code block.
     fn draw_code_block_border(&self, block_rect: NSRect) {
         let border_path =
-            NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(block_rect, 6.0, 6.0);
+            NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(block_rect, 8.0, 8.0);
         border_path.setLineWidth(1.0);
         NSColor::tertiaryLabelColor().setStroke();
         border_path.stroke();
@@ -714,20 +761,11 @@ impl MditTextView {
 
         let tag_size: NSSize = unsafe { msg_send![&*mattr, size] };
 
-        let gap_x = block_rect.origin.x + 14.0;
-        let gap_w = tag_size.width + 8.0;
-        let gap_y = block_rect.origin.y - tag_size.height / 2.0 - 1.0;
-        let gap_h = tag_size.height + 2.0;
-
-        let bg = self.backgroundColor();
-        bg.setFill();
-        NSRectFill(NSRect::new(
-            NSPoint::new(gap_x, gap_y),
-            NSSize::new(gap_w, gap_h),
-        ));
-
+        // Position the language label inside the title row (left of stripe + gap).
+        let text_x = block_rect.origin.x + CODE_BLOCK_STRIPE_W + 8.0;
+        let text_y = block_rect.origin.y + (CODE_BLOCK_HEADER_H - tag_size.height) / 2.0;
         let text_rect = NSRect::new(
-            NSPoint::new(gap_x + 4.0, gap_y + 1.0),
+            NSPoint::new(text_x, text_y),
             NSSize::new(tag_size.width, tag_size.height),
         );
         let _: () = unsafe { msg_send![&*mattr, drawInRect: text_rect] };

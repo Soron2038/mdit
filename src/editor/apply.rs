@@ -36,6 +36,9 @@ pub struct CodeBlockInfo {
     /// opening fence line).  Used to map per-token highlight spans into
     /// document positions.
     pub code_start_utf16: usize,
+    /// UTF-16 code-unit offset one past the end of the first code line.
+    /// Used to apply paragraph spacing only to that line.
+    pub first_code_line_end_utf16: usize,
     /// The raw code content (without fences, trailing newline stripped).
     pub text: String,
     /// The language tag from the opening fence (e.g. "rust"), or empty string.
@@ -60,13 +63,17 @@ fn collect_recursive(spans: &[MarkdownSpan], text: &str, out: &mut Vec<CodeBlock
             let block_slice = &text[block_start..span.source_range.1.min(text.len())];
             let code_offset = block_slice.find('\n').map(|p| p + 1).unwrap_or(0);
             let code_start_byte = block_start + code_offset;
+            let code_slice = &text[code_start_byte..span.source_range.1.min(text.len())];
+            let first_line_len = code_slice.find('\n').map(|p| p + 1).unwrap_or(code_slice.len());
+            let code_first_line_end_byte = code_start_byte + first_line_len;
 
             out.push(CodeBlockInfo {
-                start_utf16:      byte_to_utf16(text, block_start),
-                end_utf16:        byte_to_utf16(text, span.source_range.1),
-                code_start_utf16: byte_to_utf16(text, code_start_byte),
-                text:             code.clone(),
-                language:         language.clone(),
+                start_utf16:               byte_to_utf16(text, block_start),
+                end_utf16:                 byte_to_utf16(text, span.source_range.1),
+                code_start_utf16:          byte_to_utf16(text, code_start_byte),
+                first_code_line_end_utf16: byte_to_utf16(text, code_first_line_end_byte),
+                text:                      code.clone(),
+                language:                  language.clone(),
             });
         }
         collect_recursive(&span.children, text, out);
@@ -316,6 +323,21 @@ pub fn apply_attribute_runs(
                 style.as_ref(),
                 range,
             );
+        }
+        // Add spacing before the first code line so it breathes below the separator.
+        if info.code_start_utf16 < info.first_code_line_end_utf16 {
+            let first_line_range = NSRange {
+                location: info.code_start_utf16,
+                length: info.first_code_line_end_utf16 - info.code_start_utf16,
+            };
+            let spacing_style = make_code_block_para_style_with_spacing(9.6, 10.0, 4.0);
+            unsafe {
+                storage.addAttribute_value_range(
+                    NSParagraphStyleAttributeName,
+                    spacing_style.as_ref(),
+                    first_line_range,
+                );
+            }
         }
     }
 
@@ -706,6 +728,22 @@ fn make_code_block_para_style(
     style.setHeadIndent(indent);
     style.setFirstLineHeadIndent(indent);
     style.setTailIndent(-indent); // negative = inset from trailing margin
+    style
+}
+
+/// Like `make_code_block_para_style` but with extra space above the paragraph.
+/// Applied only to the first code line so it has breathing room below the separator.
+fn make_code_block_para_style_with_spacing(
+    line_spacing: f64,
+    indent: f64,
+    spacing_before: f64,
+) -> Retained<NSMutableParagraphStyle> {
+    let style = NSMutableParagraphStyle::new();
+    style.setLineSpacing(line_spacing);
+    style.setHeadIndent(indent);
+    style.setFirstLineHeadIndent(indent);
+    style.setTailIndent(-indent);
+    style.setParagraphSpacingBefore(spacing_before);
     style
 }
 
