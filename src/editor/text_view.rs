@@ -39,10 +39,62 @@ pub struct MditTextViewIvars {
     overlay: RefCell<CodeBlockOverlayState>,
 }
 
+// ---------------------------------------------------------------------------
+// Free functions — geometry helpers
+// ---------------------------------------------------------------------------
+
+/// Look up the glyph index for a UTF-16 character position.
+///
+/// Returns `None` when the layout manager has not yet laid out that character
+/// (NSNotFound ≈ `usize::MAX / 2`, i.e. NSIntegerMax = 0x7FFFFFFFFFFFFFFF).
+fn glyph_for_char(lm: &objc2_app_kit::NSLayoutManager, char_idx: usize) -> Option<usize> {
+    let idx: usize =
+        unsafe { msg_send![lm, glyphIndexForCharacterAtIndex: char_idx] };
+    if idx >= usize::MAX / 2 { None } else { Some(idx) }
+}
+
+/// Look up the line fragment rect for a glyph index.
+///
+/// Returns `None` when the layout rect has zero height (layout not yet
+/// complete or glyph not visible).
+fn frag_rect_for_glyph(lm: &objc2_app_kit::NSLayoutManager, glyph_idx: usize) -> Option<NSRect> {
+    let null_ptr = std::ptr::null_mut::<objc2_foundation::NSRange>();
+    let rect: NSRect = unsafe {
+        msg_send![lm,
+            lineFragmentRectForGlyphAtIndex: glyph_idx,
+            effectiveRange: null_ptr]
+    };
+    if rect.size.height == 0.0 { None } else { Some(rect) }
+}
+
+/// Fill a 1-point horizontal rule at (x, y) with the given width.
+/// The rect is offset by −0.5 on y to centre on the pixel boundary.
+fn fill_hline(x: f64, y: f64, width: f64) {
+    NSRectFill(NSRect::new(NSPoint::new(x, y - 0.5), NSSize::new(width, 1.0)));
+}
+
+/// Fill a 1-point vertical rule at (x, y) with the given height.
+/// The rect is offset by −0.5 on x to centre on the pixel boundary.
+fn fill_vline(x: f64, y: f64, height: f64) {
+    NSRectFill(NSRect::new(NSPoint::new(x - 0.5, y), NSSize::new(1.0, height)));
+}
+
+// ---------------------------------------------------------------------------
+// SeparatorAxis — axis selector for draw_table_separators
+// ---------------------------------------------------------------------------
+
+/// Axis for [`MditTextView::draw_table_separators`].
+#[derive(Clone, Copy)]
+enum SeparatorAxis {
+    Horizontal,
+    Vertical,
+}
+
 define_class!(
     #[unsafe(super = NSTextView)]
     #[thread_kind = MainThreadOnly]
     #[ivars = MditTextViewIvars]
+    /// Custom NSTextView subclass with overlay drawing for Markdown elements.
     pub struct MditTextView;
 
     unsafe impl NSObjectProtocol for MditTextView {}
@@ -74,8 +126,8 @@ define_class!(
                 self.draw_heading_separators();
                 self.draw_thematic_breaks();
                 self.draw_table_borders();
-                self.draw_table_h_separators();
-                self.draw_table_v_separators();
+                self.draw_table_separators(SeparatorAxis::Horizontal);
+                self.draw_table_separators(SeparatorAxis::Vertical);
             }
         }
 
@@ -161,6 +213,23 @@ impl MditTextView {
         }
     }
 
+    /// Acquire the layout manager and text container in a single call.
+    ///
+    /// Both are required by every drawing method. Returns `None` if either
+    /// is unavailable (layout not yet set up).
+    fn layout_context(
+        &self,
+    ) -> Option<(Retained<objc2_app_kit::NSLayoutManager>, Retained<objc2_app_kit::NSTextContainer>)> {
+        let lm = unsafe { self.layoutManager() }?;
+        let tc = unsafe { self.textContainer() }?;
+        Some((lm, tc))
+    }
+
+    /// Draw separator lines below H1/H2 headings.
+    ///
+    /// Only runs in Viewer mode. Draws a 1pt `tertiaryLabelColor` horizontal
+    /// rule 10pt above each heading's first line fragment, sitting in the
+    /// `paragraphSpacingBefore` gap added by `apply.rs`.
     fn draw_heading_separators(&self) {
         let delegate_ref = self.ivars().delegate.borrow();
         let delegate = match delegate_ref.as_ref() {
@@ -172,12 +241,8 @@ impl MditTextView {
             return;
         }
 
-        let layout_manager = match unsafe { self.layoutManager() } {
-            Some(lm) => lm,
-            None => return,
-        };
-        let text_container = match unsafe { self.textContainer() } {
-            Some(tc) => tc,
+        let (layout_manager, text_container) = match self.layout_context() {
+            Some(ctx) => ctx,
             None => return,
         };
 
@@ -193,39 +258,21 @@ impl MditTextView {
         sep_color.setFill();
 
         for &utf16_pos in &positions {
-            // Map the heading character index to a glyph index.
-            let glyph_idx: usize =
-                unsafe { msg_send![&*layout_manager, glyphIndexForCharacterAtIndex: utf16_pos] };
-            if glyph_idx == usize::MAX {
-                continue; // NSNotFound — layout not yet complete
-            }
-
-            // Get the bounding rect of the heading's first line fragment.
-            let null_ptr = std::ptr::null_mut::<objc2_foundation::NSRange>();
-            let frag_rect: NSRect = unsafe {
-                msg_send![
-                    &*layout_manager,
-                    lineFragmentRectForGlyphAtIndex: glyph_idx,
-                    effectiveRange: null_ptr
-                ]
-            };
-            if frag_rect.size.height == 0.0 {
-                continue; // layout rect not yet available
-            }
+            let Some(glyph_idx) = glyph_for_char(&layout_manager, utf16_pos) else { continue };
+            let Some(frag_rect) = frag_rect_for_glyph(&layout_manager, glyph_idx) else { continue };
 
             // Position the line in the paragraphSpacingBefore space (20pt added
             // in apply.rs), centred at spacing_before / 2 = 10pt above the
             // top of the heading's first line fragment.
             let y = frag_rect.origin.y + tc_origin.y - 10.0;
-
-            let line_rect = NSRect::new(
-                NSPoint::new(x_start, y - 0.5),
-                NSSize::new(x_end - x_start, 1.0),
-            );
-            NSRectFill(line_rect);
+            fill_hline(x_start, y, x_end - x_start);
         }
     }
 
+    /// Draw full-width horizontal rules for Markdown thematic breaks (`---`).
+    ///
+    /// Only runs in Viewer mode. Draws a 1pt `tertiaryLabelColor` line
+    /// vertically centred within each thematic-break line fragment.
     fn draw_thematic_breaks(&self) {
         let delegate_ref = self.ivars().delegate.borrow();
         let delegate = match delegate_ref.as_ref() {
@@ -237,12 +284,8 @@ impl MditTextView {
             return;
         }
 
-        let layout_manager = match unsafe { self.layoutManager() } {
-            Some(lm) => lm,
-            None => return,
-        };
-        let text_container = match unsafe { self.textContainer() } {
-            Some(tc) => tc,
+        let (layout_manager, text_container) = match self.layout_context() {
+            Some(ctx) => ctx,
             None => return,
         };
 
@@ -255,37 +298,20 @@ impl MditTextView {
         sep_color.setFill();
 
         for &utf16_pos in &positions {
-            let glyph_idx: usize =
-                unsafe { msg_send![&*layout_manager, glyphIndexForCharacterAtIndex: utf16_pos] };
-            if glyph_idx == usize::MAX {
-                continue;
-            }
-
-            let null_ptr = std::ptr::null_mut::<objc2_foundation::NSRange>();
-            let frag_rect: NSRect = unsafe {
-                msg_send![
-                    &*layout_manager,
-                    lineFragmentRectForGlyphAtIndex: glyph_idx,
-                    effectiveRange: null_ptr
-                ]
-            };
-            if frag_rect.size.height == 0.0 {
-                continue;
-            }
+            let Some(glyph_idx) = glyph_for_char(&layout_manager, utf16_pos) else { continue };
+            let Some(frag_rect) = frag_rect_for_glyph(&layout_manager, glyph_idx) else { continue };
 
             // Centre the line vertically in the line fragment.
             let y = frag_rect.origin.y + tc_origin.y + frag_rect.size.height / 2.0;
-
-            let line_rect = NSRect::new(
-                NSPoint::new(x_start, y - 0.5),
-                NSSize::new(x_end - x_start, 1.0),
-            );
-            NSRectFill(line_rect);
+            fill_hline(x_start, y, x_end - x_start);
         }
     }
 
-    /// Draw horizontal separator lines between table rows.
-    fn draw_table_h_separators(&self) {
+    /// Draw separator lines for all tables on the given axis.
+    ///
+    /// `Horizontal` draws row boundaries; `Vertical` draws column boundaries.
+    /// Both clip to the table's rounded-rect border so lines don't overflow corners.
+    fn draw_table_separators(&self, axis: SeparatorAxis) {
         let delegate_ref = self.ivars().delegate.borrow();
         let delegate = match delegate_ref.as_ref() {
             Some(d) => d,
@@ -297,8 +323,8 @@ impl MditTextView {
             return;
         }
 
-        let layout_manager = match unsafe { self.layoutManager() } {
-            Some(lm) => lm,
+        let (layout_manager, _text_container) = match self.layout_context() {
+            Some(ctx) => ctx,
             None => return,
         };
 
@@ -319,32 +345,28 @@ impl MditTextView {
 
         let sep_color = NSColor::tertiaryLabelColor();
         sep_color.setFill();
-        let null_ptr = std::ptr::null_mut::<objc2_foundation::NSRange>();
 
         for (grid, table_rect) in grids.iter().zip(rects.iter()) {
-            for &utf16_pos in &grid.row_seps {
-                let glyph_idx: usize =
-                    unsafe { msg_send![&*layout_manager, glyphIndexForCharacterAtIndex: utf16_pos] };
-                if glyph_idx >= usize::MAX / 2 {
-                    continue;
+            let positions = match axis {
+                SeparatorAxis::Horizontal => &grid.row_seps,
+                SeparatorAxis::Vertical => &grid.column_seps,
+            };
+            for &utf16_pos in positions {
+                let Some(glyph_idx) = glyph_for_char(&layout_manager, utf16_pos) else { continue };
+                let Some(frag_rect) = frag_rect_for_glyph(&layout_manager, glyph_idx) else { continue };
+                match axis {
+                    SeparatorAxis::Horizontal => {
+                        let y = frag_rect.origin.y + tc_origin.y;
+                        fill_hline(table_rect.origin.x, y, table_rect.size.width);
+                    }
+                    SeparatorAxis::Vertical => {
+                        let glyph_loc: NSPoint = unsafe {
+                            msg_send![&*layout_manager, locationForGlyphAtIndex: glyph_idx]
+                        };
+                        let x = frag_rect.origin.x + glyph_loc.x + tc_origin.x;
+                        fill_vline(x, table_rect.origin.y, table_rect.size.height);
+                    }
                 }
-                let frag_rect: NSRect = unsafe {
-                    msg_send![
-                        &*layout_manager,
-                        lineFragmentRectForGlyphAtIndex: glyph_idx,
-                        effectiveRange: null_ptr
-                    ]
-                };
-                if frag_rect.size.height == 0.0 {
-                    continue;
-                }
-
-                let y = frag_rect.origin.y + tc_origin.y;
-                let line_rect = NSRect::new(
-                    NSPoint::new(table_rect.origin.x, y - 0.5),
-                    NSSize::new(table_rect.size.width, 1.0),
-                );
-                NSRectFill(line_rect);
             }
         }
 
@@ -354,81 +376,11 @@ impl MditTextView {
         }
     }
 
-    /// Draw vertical separator lines at table column boundaries.
-    fn draw_table_v_separators(&self) {
-        let delegate_ref = self.ivars().delegate.borrow();
-        let delegate = match delegate_ref.as_ref() {
-            Some(d) => d,
-            None => return,
-        };
-        let grids = delegate.table_grids();
-        drop(delegate_ref);
-        if grids.is_empty() {
-            return;
-        }
-
-        let layout_manager = match unsafe { self.layoutManager() } {
-            Some(lm) => lm,
-            None => return,
-        };
-
-        let tc_origin = self.textContainerOrigin();
-        let rects = self.table_rects_from_grids(&grids);
-
-        // Clip to table border rects.
-        if !rects.is_empty() {
-            let ctx_cls = objc2::runtime::AnyClass::get(c"NSGraphicsContext").unwrap();
-            let _: () = unsafe { msg_send![ctx_cls, saveGraphicsState] };
-            let clip_path = NSBezierPath::bezierPath();
-            for rect in &rects {
-                let rounded = NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(*rect, 6.0, 6.0);
-                clip_path.appendBezierPath(&rounded);
-            }
-            clip_path.addClip();
-        }
-
-        let sep_color = NSColor::tertiaryLabelColor();
-        sep_color.setFill();
-        let null_ptr = std::ptr::null_mut::<objc2_foundation::NSRange>();
-
-        for (grid, table_rect) in grids.iter().zip(rects.iter()) {
-            for &utf16_pos in &grid.column_seps {
-                let glyph_idx: usize =
-                    unsafe { msg_send![&*layout_manager, glyphIndexForCharacterAtIndex: utf16_pos] };
-                if glyph_idx >= usize::MAX / 2 {
-                    continue;
-                }
-                let frag_rect: NSRect = unsafe {
-                    msg_send![
-                        &*layout_manager,
-                        lineFragmentRectForGlyphAtIndex: glyph_idx,
-                        effectiveRange: null_ptr
-                    ]
-                };
-                if frag_rect.size.height == 0.0 {
-                    continue;
-                }
-
-                let glyph_loc: NSPoint = unsafe {
-                    msg_send![&*layout_manager, locationForGlyphAtIndex: glyph_idx]
-                };
-
-                let x = frag_rect.origin.x + glyph_loc.x + tc_origin.x;
-                let line_rect = NSRect::new(
-                    NSPoint::new(x - 0.5, table_rect.origin.y),
-                    NSSize::new(1.0, table_rect.size.height),
-                );
-                NSRectFill(line_rect);
-            }
-        }
-
-        if !rects.is_empty() {
-            let ctx_cls = objc2::runtime::AnyClass::get(c"NSGraphicsContext").unwrap();
-            let _: () = unsafe { msg_send![ctx_cls, restoreGraphicsState] };
-        }
-    }
-
-    /// Compute the bounding rect for each table from its `TableGrid` bounds.
+    /// Compute the full-width bounding rect for each table from its `TableGrid` bounds.
+    ///
+    /// Each rect spans the full container width and is padded 8pt above the first
+    /// line fragment and 8pt below the last. Used for background fills, border strokes,
+    /// and clip-path setup in separator drawing.
     fn table_rects_from_grids(
         &self,
         grids: &[TableGrid],
@@ -437,18 +389,13 @@ impl MditTextView {
             return Vec::new();
         }
 
-        let layout_manager = match unsafe { self.layoutManager() } {
-            Some(lm) => lm,
-            None => return Vec::new(),
-        };
-        let text_container = match unsafe { self.textContainer() } {
-            Some(tc) => tc,
+        let (layout_manager, text_container) = match self.layout_context() {
+            Some(ctx) => ctx,
             None => return Vec::new(),
         };
 
         let tc_origin = self.textContainerOrigin();
         let container_width = text_container.containerSize().width;
-        let null_ptr = std::ptr::null_mut::<objc2_foundation::NSRange>();
 
         let mut result = Vec::new();
         for grid in grids {
@@ -456,30 +403,12 @@ impl MditTextView {
             if start_u16 >= end_u16 {
                 continue;
             }
-            let first_glyph: usize = unsafe {
-                msg_send![&*layout_manager, glyphIndexForCharacterAtIndex: start_u16]
-            };
+            let Some(first_glyph) = glyph_for_char(&layout_manager, start_u16) else { continue };
             let last_char = end_u16.saturating_sub(1);
-            let last_glyph: usize = unsafe {
-                msg_send![&*layout_manager, glyphIndexForCharacterAtIndex: last_char]
-            };
-            if first_glyph >= usize::MAX / 2 || last_glyph >= usize::MAX / 2 {
-                continue;
-            }
+            let Some(last_glyph) = glyph_for_char(&layout_manager, last_char) else { continue };
 
-            let top_frag: NSRect = unsafe {
-                msg_send![&*layout_manager,
-                    lineFragmentRectForGlyphAtIndex: first_glyph,
-                    effectiveRange: null_ptr]
-            };
-            let bot_frag: NSRect = unsafe {
-                msg_send![&*layout_manager,
-                    lineFragmentRectForGlyphAtIndex: last_glyph,
-                    effectiveRange: null_ptr]
-            };
-            if top_frag.size.height == 0.0 || bot_frag.size.height == 0.0 {
-                continue;
-            }
+            let Some(top_frag) = frag_rect_for_glyph(&layout_manager, first_glyph) else { continue };
+            let Some(bot_frag) = frag_rect_for_glyph(&layout_manager, last_glyph) else { continue };
 
             let block_y = top_frag.origin.y + tc_origin.y - 8.0;
             let block_bottom = bot_frag.origin.y + bot_frag.size.height + tc_origin.y + 8.0;
@@ -550,18 +479,13 @@ impl MditTextView {
             return Vec::new();
         }
 
-        let layout_manager = match unsafe { self.layoutManager() } {
-            Some(lm) => lm,
-            None => return Vec::new(),
-        };
-        let text_container = match unsafe { self.textContainer() } {
-            Some(tc) => tc,
+        let (layout_manager, text_container) = match self.layout_context() {
+            Some(ctx) => ctx,
             None => return Vec::new(),
         };
 
         let tc_origin = self.textContainerOrigin();
         let container_width = text_container.containerSize().width;
-        let null_ptr = std::ptr::null_mut::<objc2_foundation::NSRange>();
 
         let mut result = Vec::new();
         for info in &infos {
@@ -570,35 +494,15 @@ impl MditTextView {
             }
 
             // ── Map UTF-16 offsets to glyph indices ──────────────────────────
-            let first_glyph: usize = unsafe {
-                msg_send![&*layout_manager,
-                    glyphIndexForCharacterAtIndex: info.start_utf16]
-            };
-            let last_char = info.end_utf16.saturating_sub(1);
-            let last_glyph: usize = unsafe {
-                msg_send![&*layout_manager,
-                    glyphIndexForCharacterAtIndex: last_char]
-            };
             // NSNotFound = NSIntegerMax = 0x7FFFFFFFFFFFFFFF, NOT usize::MAX.
             // Use usize::MAX/2 as sentinel to catch both values safely.
-            if first_glyph >= usize::MAX / 2 || last_glyph >= usize::MAX / 2 {
-                continue;
-            }
+            let Some(first_glyph) = glyph_for_char(&layout_manager, info.start_utf16) else { continue };
+            let last_char = info.end_utf16.saturating_sub(1);
+            let Some(last_glyph) = glyph_for_char(&layout_manager, last_char) else { continue };
 
             // ── Get line fragment rects ───────────────────────────────────────
-            let top_frag: NSRect = unsafe {
-                msg_send![&*layout_manager,
-                    lineFragmentRectForGlyphAtIndex: first_glyph,
-                    effectiveRange: null_ptr]
-            };
-            let bot_frag: NSRect = unsafe {
-                msg_send![&*layout_manager,
-                    lineFragmentRectForGlyphAtIndex: last_glyph,
-                    effectiveRange: null_ptr]
-            };
-            if top_frag.size.height == 0.0 || bot_frag.size.height == 0.0 {
-                continue;
-            }
+            let Some(top_frag) = frag_rect_for_glyph(&layout_manager, first_glyph) else { continue };
+            let Some(bot_frag) = frag_rect_for_glyph(&layout_manager, last_glyph) else { continue };
 
             // ── Build full-width block rect (7pt vertical padding) ────────────
             let block_y = top_frag.origin.y + tc_origin.y - 7.0;
