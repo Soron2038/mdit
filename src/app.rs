@@ -31,6 +31,30 @@ use mdit::ui::tab_bar::TabBar;
 const TAB_H: f64 = 32.0;
 const PATH_H: f64 = 22.0;
 
+/// Frame for the sidebar container for a given mode.
+///
+/// - Viewer → width 0 (hidden)
+/// - Editor → width SIDEBAR_W (visible)
+fn sidebar_target_frame(mode: ViewMode, content_h: f64) -> NSRect {
+    let w = if mode == ViewMode::Editor { SIDEBAR_W } else { 0.0 };
+    NSRect::new(
+        NSPoint::new(0.0, PATH_H),
+        NSSize::new(w, content_h),
+    )
+}
+
+/// Frame for the active NSScrollView for a given mode.
+///
+/// - Viewer → x: 0, full window width
+/// - Editor → x: SIDEBAR_W, reduced width
+fn content_target_frame(mode: ViewMode, win_w: f64, win_h: f64) -> NSRect {
+    let sidebar_w = if mode == ViewMode::Editor { SIDEBAR_W } else { 0.0 };
+    NSRect::new(
+        NSPoint::new(sidebar_w, PATH_H),
+        NSSize::new((win_w - sidebar_w).max(0.0), (win_h - TAB_H - PATH_H).max(0.0)),
+    )
+}
+
 // ---------------------------------------------------------------------------
 // App Delegate
 // ---------------------------------------------------------------------------
@@ -1036,4 +1060,46 @@ pub fn run() {
     let delegate = AppDelegate::new(mtm);
     app.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
     app.run();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mdit::editor::view_mode::ViewMode;
+
+    #[test]
+    fn sidebar_frame_viewer_is_zero_width() {
+        let f = sidebar_target_frame(ViewMode::Viewer, 500.0);
+        assert_eq!(f.size.width, 0.0);
+        assert_eq!(f.size.height, 500.0);
+        assert_eq!(f.origin.y, PATH_H);
+    }
+
+    #[test]
+    fn sidebar_frame_editor_is_sidebar_w() {
+        let f = sidebar_target_frame(ViewMode::Editor, 500.0);
+        assert_eq!(f.size.width, SIDEBAR_W);
+        assert_eq!(f.size.height, 500.0);
+    }
+
+    #[test]
+    fn content_frame_viewer_starts_at_zero() {
+        let f = content_target_frame(ViewMode::Viewer, 1000.0, 700.0);
+        assert_eq!(f.origin.x, 0.0);
+        assert_eq!(f.size.width, 1000.0);
+    }
+
+    #[test]
+    fn content_frame_editor_offset_by_sidebar() {
+        let f = content_target_frame(ViewMode::Editor, 1000.0, 700.0);
+        assert_eq!(f.origin.x, SIDEBAR_W);
+        assert_eq!(f.size.width, 1000.0 - SIDEBAR_W);
+    }
+
+    #[test]
+    fn content_frame_height_excludes_bars() {
+        let f = content_target_frame(ViewMode::Viewer, 800.0, 700.0);
+        assert_eq!(f.origin.y, PATH_H);
+        assert_eq!(f.size.height, 700.0 - TAB_H - PATH_H);
+    }
 }
