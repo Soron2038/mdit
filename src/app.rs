@@ -840,7 +840,8 @@ impl AppDelegate {
         let Some(win) = self.ivars().window.get() else {
             return;
         };
-        let editor_width = (win.frame().size.width - SIDEBAR_W).max(0.0);
+        let effective_sidebar_w = if self.is_editor_mode() { SIDEBAR_W } else { 0.0 };
+        let editor_width = (win.frame().size.width - effective_sidebar_w).max(0.0);
         let max_text_width = 700.0_f64;
         let min_padding = 40.0_f64;
         let h_inset = if editor_width > max_text_width + 2.0 * min_padding {
