@@ -32,10 +32,20 @@ const GROUP_GAP: f64 = 10.0;
 const ICON_SIZE: f64 = 14.0;
 const PILL_RADIUS: f64 = 4.0;
 
+// NSTrackingArea option flags (not exposed as typed constants in objc2 0.6).
+// Values from NSTrackingAreaOptions in AppKit headers.
+const NS_TRACKING_MOUSE_ENTERED_AND_EXITED: usize = 0x01; // NSTrackingMouseEnteredAndExited
+const NS_TRACKING_MOUSE_MOVED: usize = 0x02;              // NSTrackingMouseMoved
+const NS_TRACKING_ACTIVE_IN_KEY_WINDOW: usize = 0x20;     // NSTrackingActiveInKeyWindow
+
 // ---------------------------------------------------------------------------
 // Button descriptors
 // ---------------------------------------------------------------------------
 
+/// Describes the visual style of a sidebar button.
+///
+/// `StyledText` buttons (H1/H2/H3) use font size and weight to create a visual
+/// hierarchy without SF Symbols, since AppKit's symbol library lacks heading variants.
 enum ButtonKind {
     SfSymbol(&'static str),
     StyledText {
@@ -170,24 +180,29 @@ const BTN_DEFS: &[ButtonDef] = &[
 // SidebarButtonView — custom NSView subclass
 // ---------------------------------------------------------------------------
 
+// Custom NSView that draws formatting buttons with hover/press feedback.
+//
+// Each button is a 28×28 pt square positioned in a column along the left edge,
+// with SF Symbol icons (or styled text for headings). On hover or press, a rounded
+// pill background appears and the icon is tinted with the accent color.
 #[doc(hidden)]
 pub struct SidebarButtonViewIvars {
-    /// Index of the button currently under the mouse, or `None`.
+    // Index of the button currently under the mouse, or `None`.
     hovered_index: Cell<Option<usize>>,
-    /// Index of the button currently pressed (mouse-down), or `None`.
+    // Index of the button currently pressed (mouse-down), or `None`.
     pressed_index: Cell<Option<usize>>,
-    /// Precomputed Y origins of each button (bottom-edge, in view coords).
+    // Precomputed Y origins of each button (bottom-edge, in view coords).
     button_origins: RefCell<Vec<f64>>,
-    /// The target object that receives action selectors (the `AppDelegate`).
-    /// Raw pointer — the sidebar never outlives the delegate.
+    // The target object that receives action selectors (the `AppDelegate`).
+    // Raw pointer — the sidebar never outlives the delegate.
     target: Cell<*const AnyObject>,
-    /// Cached SF Symbol images, loaded once at init.
-    /// Index matches `BTN_DEFS`. `None` for `StyledText` buttons or if the
-    /// symbol could not be loaded.
+    // Cached SF Symbol images, loaded once at init.
+    // Index matches `BTN_DEFS`. `None` for `StyledText` buttons or if the
+    // symbol could not be loaded.
     cached_images: RefCell<Vec<Option<Retained<NSImage>>>>,
-    /// The active tracking area, if any.
+    // The active tracking area, if any.
     tracking_area: RefCell<Option<Retained<AnyObject>>>,
-    /// Accent color used for hover/press icon tint (RGB floats).
+    // Accent color used for hover/press icon tint (RGB floats).
     accent_color: Cell<(f64, f64, f64)>,
 }
 
@@ -213,8 +228,9 @@ define_class!(
                 let _: () = unsafe { msg_send![self, removeTrackingArea: &**old] };
             }
 
-            // NSTrackingMouseEnteredAndExited | NSTrackingMouseMoved | NSTrackingActiveInActiveApp
-            let options: usize = 0x01 | 0x02 | 0x20;
+            let options: usize = NS_TRACKING_MOUSE_ENTERED_AND_EXITED
+                | NS_TRACKING_MOUSE_MOVED
+                | NS_TRACKING_ACTIVE_IN_KEY_WINDOW;
             let bounds = self.bounds();
 
             let cls = AnyClass::get(c"NSTrackingArea")
@@ -468,8 +484,8 @@ impl SidebarButtonView {
         let font = NSFont::systemFontOfSize_weight(font_size, font_weight);
 
         unsafe {
-            let font_obj: &AnyObject = &**font;
-            let color_obj: &AnyObject = &**color;
+            let font_obj: &AnyObject = &font;
+            let color_obj: &AnyObject = color;
             let _: () = msg_send![&*mattr,
                 addAttribute: NSFontAttributeName,
                 value: font_obj,
@@ -543,8 +559,7 @@ impl FormattingSidebar {
 
     /// Refresh the right-border color from the current system separatorColor.
     ///
-    /// Call this once during setup and again whenever the system appearance
-    /// changes.
+    /// Call this once during setup and again whenever the system appearance changes.
     pub fn apply_separator_color(&self) {
         if let Some(layer) = self.border.layer() {
             let color = NSColor::separatorColor();
@@ -555,6 +570,8 @@ impl FormattingSidebar {
     }
 
     /// Update the sidebar height on window resize.
+    ///
+    /// Resizes all internal views and recomputes button origins to match the new height.
     pub fn set_height(&self, height: f64) {
         // Resize container.
         let mut f = self.container.frame();

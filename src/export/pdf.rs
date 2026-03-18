@@ -9,7 +9,7 @@ pub fn export_pdf(text_view: &NSTextView) {
     let print_info = NSPrintInfo::sharedPrintInfo();
     // NSTextView → NSText → NSView via Deref chain
     let op = NSPrintOperation::printOperationWithView_printInfo(
-        &***text_view,
+        text_view,
         &print_info,
     );
     op.runOperation();

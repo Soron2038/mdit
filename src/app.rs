@@ -57,57 +57,15 @@ define_class!(
     unsafe impl NSApplicationDelegate for AppDelegate {
         #[unsafe(method(applicationDidFinishLaunching:))]
         fn did_finish_launching(&self, notification: &NSNotification) {
-            let mtm = self.mtm();
-
             let app = notification.object()
                 .unwrap()
                 .downcast::<NSApplication>()
                 .unwrap();
 
             let initial_scheme = detect_scheme(&app);
-            let window = create_window(mtm);
 
-            window.setDelegate(Some(ProtocolObject::from_ref(self)));
-            build_main_menu(&app, mtm);
-            window.center();
-            window.makeKeyAndOrderFront(None);
-
-            let target: &AnyObject = unsafe {
-                &*(self as *const AppDelegate as *const AnyObject)
-            };
-            add_titlebar_accessory(&window, mtm, target);
-
-            let content = window.contentView().unwrap();
-            let bounds = content.bounds();
-            let w = bounds.size.width;
-            let h = bounds.size.height;
-
-            // TabBar at the top
-            let tab_bar = TabBar::new(mtm, w);
-            tab_bar.view().setFrame(NSRect::new(
-                NSPoint::new(0.0, h - TAB_H),
-                NSSize::new(w, TAB_H),
-            ));
-            content.addSubview(tab_bar.view());
-
-            // PathBar at the bottom
-            let path_bar = PathBar::new(mtm, w);
-            content.addSubview(path_bar.view());
-
-            // Sidebar — formatting toolbar (hidden in default Viewer mode)
-            let content_h = (h - TAB_H - PATH_H).max(0.0);
-            let sidebar = FormattingSidebar::new(mtm, content_h, target);
-            sidebar.view().setFrame(NSRect::new(
-                NSPoint::new(0.0, PATH_H),
-                NSSize::new(SIDEBAR_W, content_h),
-            ));
-            // Sidebar is always visible regardless of mode.
-            content.addSubview(sidebar.view());
-
-            self.ivars().window.set(window).unwrap();
-            let _ = self.ivars().tab_bar.set(tab_bar);
-            let _ = self.ivars().path_bar.set(path_bar);
-            let _ = self.ivars().sidebar.set(sidebar);
+            self.setup_window_and_menu(&app);
+            self.setup_content_views();
 
             app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
             #[allow(deprecated)]
@@ -190,25 +148,13 @@ define_class!(
         // ── Inline formatting ──────────────────────────────────────────────
 
         #[unsafe(method(applyBold:))]
-        fn apply_bold(&self, _sender: &AnyObject) {
-            if let Some(tv) = self.editor_text_view() {
-                toggle_inline_wrap(&tv, "**");
-            }
-        }
+        fn apply_bold(&self, _sender: &AnyObject) { self.dispatch_inline_format("**"); }
 
         #[unsafe(method(applyItalic:))]
-        fn apply_italic(&self, _sender: &AnyObject) {
-            if let Some(tv) = self.editor_text_view() {
-                toggle_inline_wrap(&tv, "_");
-            }
-        }
+        fn apply_italic(&self, _sender: &AnyObject) { self.dispatch_inline_format("_"); }
 
         #[unsafe(method(applyInlineCode:))]
-        fn apply_inline_code(&self, _sender: &AnyObject) {
-            if let Some(tv) = self.editor_text_view() {
-                toggle_inline_wrap(&tv, "`");
-            }
-        }
+        fn apply_inline_code(&self, _sender: &AnyObject) { self.dispatch_inline_format("`"); }
 
         #[unsafe(method(applyLink:))]
         fn apply_link(&self, _sender: &AnyObject) {
@@ -218,32 +164,16 @@ define_class!(
         }
 
         #[unsafe(method(applyStrikethrough:))]
-        fn apply_strikethrough(&self, _sender: &AnyObject) {
-            if let Some(tv) = self.editor_text_view() {
-                toggle_inline_wrap(&tv, "~~");
-            }
-        }
+        fn apply_strikethrough(&self, _sender: &AnyObject) { self.dispatch_inline_format("~~"); }
 
         #[unsafe(method(applyHighlight:))]
-        fn apply_highlight(&self, _sender: &AnyObject) {
-            if let Some(tv) = self.editor_text_view() {
-                toggle_inline_wrap(&tv, "==");
-            }
-        }
+        fn apply_highlight(&self, _sender: &AnyObject) { self.dispatch_inline_format("=="); }
 
         #[unsafe(method(applySubscript:))]
-        fn apply_subscript(&self, _sender: &AnyObject) {
-            if let Some(tv) = self.editor_text_view() {
-                toggle_inline_wrap(&tv, "~");
-            }
-        }
+        fn apply_subscript(&self, _sender: &AnyObject) { self.dispatch_inline_format("~"); }
 
         #[unsafe(method(applySuperscript:))]
-        fn apply_superscript(&self, _sender: &AnyObject) {
-            if let Some(tv) = self.editor_text_view() {
-                toggle_inline_wrap(&tv, "^");
-            }
-        }
+        fn apply_superscript(&self, _sender: &AnyObject) { self.dispatch_inline_format("^"); }
 
         // ── Appearance ─────────────────────────────────────────────────────
 
@@ -322,39 +252,19 @@ define_class!(
         // ── Heading shortcuts ──────────────────────────────────────────────
 
         #[unsafe(method(applyH1:))]
-        fn apply_h1(&self, _sender: &AnyObject) {
-            if let Some(tv) = self.editor_text_view() {
-                apply_block_format(&tv, "# ");
-            }
-        }
+        fn apply_h1(&self, _sender: &AnyObject) { self.dispatch_block_format("# "); }
 
         #[unsafe(method(applyH2:))]
-        fn apply_h2(&self, _sender: &AnyObject) {
-            if let Some(tv) = self.editor_text_view() {
-                apply_block_format(&tv, "## ");
-            }
-        }
+        fn apply_h2(&self, _sender: &AnyObject) { self.dispatch_block_format("## "); }
 
         #[unsafe(method(applyH3:))]
-        fn apply_h3(&self, _sender: &AnyObject) {
-            if let Some(tv) = self.editor_text_view() {
-                apply_block_format(&tv, "### ");
-            }
-        }
+        fn apply_h3(&self, _sender: &AnyObject) { self.dispatch_block_format("### "); }
 
         #[unsafe(method(applyNormal:))]
-        fn apply_normal(&self, _sender: &AnyObject) {
-            if let Some(tv) = self.editor_text_view() {
-                apply_block_format(&tv, "");
-            }
-        }
+        fn apply_normal(&self, _sender: &AnyObject) { self.dispatch_block_format(""); }
 
         #[unsafe(method(applyBlockquote:))]
-        fn apply_blockquote(&self, _sender: &AnyObject) {
-            if let Some(tv) = self.editor_text_view() {
-                apply_block_format(&tv, "> ");
-            }
-        }
+        fn apply_blockquote(&self, _sender: &AnyObject) { self.dispatch_block_format("> "); }
 
         #[unsafe(method(applyCodeBlock:))]
         fn apply_code_block(&self, _sender: &AnyObject) {
@@ -408,8 +318,90 @@ impl AppDelegate {
         unsafe { msg_send![super(this), init] }
     }
 
-    /// Frame for the active NSScrollView (between TabBar and PathBar).
-    /// The sidebar is always visible, so the editor is always offset by SIDEBAR_W.
+    /// Forward an inline-format toggle to the active editor text view.
+    ///
+    /// Switches to Editor mode automatically if currently in Viewer mode,
+    /// so clicking a sidebar button activates editing.
+    fn dispatch_inline_format(&self, marker: &'static str) {
+        if let Some(tv) = self.editor_text_view() {
+            toggle_inline_wrap(&tv, marker);
+        }
+    }
+
+    /// Apply a block-level prefix to the line containing the caret.
+    ///
+    /// Delegates to the pure `set_block_format()` in `editor::formatting`.
+    /// Switches to Editor mode automatically if needed.
+    fn dispatch_block_format(&self, prefix: &'static str) {
+        if let Some(tv) = self.editor_text_view() {
+            apply_block_format(&tv, prefix);
+        }
+    }
+
+    /// Create the main window, build the menu, and present it.
+    ///
+    /// Stores the window in `self.ivars().window`.
+    /// Called once from `applicationDidFinishLaunching:`.
+    fn setup_window_and_menu(&self, app: &NSApplication) {
+        let mtm = self.mtm();
+        let window = create_window(mtm);
+        window.setDelegate(Some(ProtocolObject::from_ref(self)));
+        build_main_menu(app, mtm);
+        window.center();
+        window.makeKeyAndOrderFront(None);
+        let target: &AnyObject = unsafe {
+            &*(self as *const AppDelegate as *const AnyObject)
+        };
+        add_titlebar_accessory(&window, mtm, target);
+        self.ivars().window.set(window).unwrap();
+    }
+
+    /// Create and add the content view hierarchy (tab bar, path bar, sidebar).
+    ///
+    /// Must be called after the window is created and stored in `self.ivars().window`.
+    fn setup_content_views(&self) {
+        let mtm = self.mtm();
+        let window = self.ivars().window.get().expect("window must exist before setup_content_views");
+        let content = window.contentView().unwrap();
+        let bounds = content.bounds();
+        let w = bounds.size.width;
+        let h = bounds.size.height;
+
+        let target: &AnyObject = unsafe {
+            &*(self as *const AppDelegate as *const AnyObject)
+        };
+
+        // TabBar at the top
+        let tab_bar = TabBar::new(mtm, w);
+        tab_bar.view().setFrame(NSRect::new(
+            NSPoint::new(0.0, h - TAB_H),
+            NSSize::new(w, TAB_H),
+        ));
+        content.addSubview(tab_bar.view());
+
+        // PathBar at the bottom
+        let path_bar = PathBar::new(mtm, w);
+        content.addSubview(path_bar.view());
+
+        // Sidebar — formatting toolbar
+        let content_h = (h - TAB_H - PATH_H).max(0.0);
+        let sidebar = FormattingSidebar::new(mtm, content_h, target);
+        sidebar.view().setFrame(NSRect::new(
+            NSPoint::new(0.0, PATH_H),
+            NSSize::new(SIDEBAR_W, content_h),
+        ));
+        // Sidebar is always visible regardless of mode.
+        content.addSubview(sidebar.view());
+
+        let _ = self.ivars().tab_bar.set(tab_bar);
+        let _ = self.ivars().path_bar.set(path_bar);
+        let _ = self.ivars().sidebar.set(sidebar);
+    }
+
+    /// Frame for the active NSScrollView, positioned between the tab bar and path bar.
+    ///
+    /// The sidebar is always visible, so the left edge is always offset by `SIDEBAR_W`.
+    /// Returns `NSRect::ZERO` if the window is not yet initialised.
     fn content_frame(&self) -> NSRect {
         let Some(win) = self.ivars().window.get() else {
             return NSRect::ZERO;
@@ -470,6 +462,10 @@ impl AppDelegate {
     }
 
     /// Open a file by path — used by both the Open dialog and Finder/Dock open events.
+    ///
+    /// If the file is already open in a tab, that tab is activated instead.
+    /// If the active tab is a pristine empty document (no path, no content, not dirty),
+    /// the file is loaded into it directly; otherwise a new tab is created first.
     fn open_file_by_path(&self, path: std::path::PathBuf) {
         // Check if already open → switch to that tab
         {
@@ -492,11 +488,11 @@ impl AppDelegate {
         // Reuse the active tab if it's a pristine empty tab, otherwise create a new one.
         let reuse = {
             let tm = self.ivars().tab_manager.borrow();
-            tm.active().map_or(false, |t| {
+            tm.active().is_some_and(|t| {
                 !t.is_dirty.get()
                     && t.url.borrow().is_none()
                     && unsafe { t.text_view.textStorage() }
-                        .map_or(true, |s| s.length() == 0)
+                        .is_none_or(|s| s.length() == 0)
             })
         };
         if !reuse {
@@ -530,9 +526,11 @@ impl AppDelegate {
         tm.active().map(|t| t.text_view.clone())
     }
 
-    /// Return the active text view, switching to Editor mode first if in Viewer mode.
-    /// Used by all formatting actions so clicking a sidebar button in Viewer mode
-    /// automatically activates the editor.
+    /// Return the active text view, switching to Editor mode first if needed.
+    ///
+    /// All formatting actions call this instead of `active_text_view`, so that
+    /// clicking a sidebar button while in Viewer mode automatically activates
+    /// the editor before applying the format.
     fn editor_text_view(&self) -> Option<Retained<NSTextView>> {
         if !self.is_editor_mode() {
             self.toggle_mode();
@@ -702,7 +700,11 @@ impl AppDelegate {
         }
     }
 
-    /// Save tab at `index` (None = active tab).
+    /// Save tab at `index`, or the active tab when `index` is `None`.
+    ///
+    /// If the tab has no associated path, an `NSSavePanel` is presented first.
+    /// The `None`-index convention lets `saveDocument:` delegate here without
+    /// needing to resolve the active index at the call site.
     fn perform_save(&self, index: Option<usize>) {
         let idx = index.unwrap_or_else(|| self.ivars().tab_manager.borrow().active_index());
 
@@ -770,6 +772,9 @@ impl AppDelegate {
     }
 
     /// Compute and apply the horizontal text container inset for the active tab.
+    ///
+    /// Centres the text column at up to 700 pt wide with a minimum 40 pt margin
+    /// on each side: `inset = max(40, (editor_width − 700) / 2)`.
     fn update_text_container_inset(&self) {
         let Some(win) = self.ivars().window.get() else {
             return;
