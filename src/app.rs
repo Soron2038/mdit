@@ -640,6 +640,18 @@ impl AppDelegate {
             }
         }
 
+        // Snap sidebar to the new tab's mode without animation.
+        if let Some(sb) = self.ivars().sidebar.get() {
+            let new_tab_mode = self.ivars().tab_manager.borrow()
+                .active()
+                .map(|t| t.mode.get())
+                .unwrap_or(ViewMode::Viewer);
+            let bounds = win.contentView().unwrap().bounds();
+            let content_h = (bounds.size.height - TAB_H - PATH_H).max(0.0);
+            let sidebar_w = if new_tab_mode == ViewMode::Editor { SIDEBAR_W } else { 0.0 };
+            sb.set_size_direct(sidebar_w, content_h);
+        }
+
         // Update path bar
         if let Some(pb) = self.ivars().path_bar.get() {
             let tm = self.ivars().tab_manager.borrow();
