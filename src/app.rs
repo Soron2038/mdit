@@ -438,6 +438,22 @@ define_class!(
         fn control_text_did_change(&self, _notification: &NSNotification) {
             self.perform_search();
         }
+
+        /// Called when the search field receives a command (e.g. Escape → cancelOperation:).
+        /// Returning true means the command was handled; false lets it propagate.
+        #[unsafe(method(control:textView:doCommandBySelector:))]
+        fn control_text_view_do_command(
+            &self,
+            _control: &AnyObject,
+            _text_view: &AnyObject,
+            selector: objc2::runtime::Sel,
+        ) -> bool {
+            if selector == objc2::sel!(cancelOperation:) {
+                self.close_find_bar();
+                return true.into();
+            }
+            false.into()
+        }
     }
 
     // ── NSTextViewDelegate: show/hide toolbar on selection ──────────────────
