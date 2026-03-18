@@ -1,23 +1,22 @@
 use std::cell::{OnceCell, RefCell};
 use std::path::PathBuf;
+use std::ptr::NonNull;
 
+use block2::StackBlock;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyClass, AnyObject, ProtocolObject};
 use objc2::{define_class, msg_send, sel, DefinedClass, MainThreadOnly};
 use objc2_app_kit::{
-    NSAppearanceNameAqua, NSAppearanceNameDarkAqua, NSApplication, NSApplicationActivationPolicy,
-    NSApplicationDelegate, NSBackingStoreType, NSBezelStyle, NSButton, NSColor, NSControl,
-    NSImage, NSTextDelegate, NSTextView, NSTextViewDelegate, NSView, NSWindow,
-    NSWindowDelegate, NSWindowStyleMask,
-    NSAnimationContext,
+    NSAnimationContext, NSAppearanceNameAqua, NSAppearanceNameDarkAqua, NSApplication,
+    NSApplicationActivationPolicy, NSApplicationDelegate, NSBackingStoreType, NSBezelStyle,
+    NSButton, NSColor, NSControl, NSImage, NSTextDelegate, NSTextView, NSTextViewDelegate,
+    NSView, NSWindow, NSWindowDelegate, NSWindowStyleMask,
 };
-use objc2_quartz_core::{CAMediaTimingFunction, kCAMediaTimingFunctionEaseInEaseOut};
-use block2::StackBlock;
-use std::ptr::NonNull;
 use objc2_foundation::{
     ns_string, MainThreadMarker, NSArray, NSNotification, NSObject, NSObjectProtocol, NSPoint,
     NSRange, NSRect, NSSize, NSString,
 };
+use objc2_quartz_core::{CAMediaTimingFunction, kCAMediaTimingFunctionEaseInEaseOut};
 
 use mdit::editor::document_state::DocumentState;
 use mdit::editor::tab_manager::{TabCloseResult, TabManager};
@@ -490,10 +489,12 @@ impl AppDelegate {
         // ── 4. Animated frame changes ──────────────────────────────────────────
         let Some(sb) = self.ivars().sidebar.get() else { return };
 
-        // Use raw pointers for view references captured by the animation block.
-        // Safety: both views are owned by long-lived structs (FormattingSidebar
-        // lives in OnceCell, scroll_view is kept alive by the Retained below).
-        // The changes block is called synchronously before runAnimationGroup returns.
+        // Safety:
+        // sb_ptr — FormattingSidebar lives in a OnceCell for the application
+        //   lifetime; the pointer outlives toggle_mode.
+        // sv_ptr — scroll_view (Retained<NSScrollView>) is held in this scope
+        //   and will not be dropped before runAnimationGroup_completionHandler
+        //   returns, keeping sv_ptr valid regardless of when the block executes.
         let sb_ptr: *const NSView = sb.view();
         let sv_ptr: *const objc2_app_kit::NSScrollView = &*scroll_view;
 
@@ -502,9 +503,7 @@ impl AppDelegate {
             // Safety: ctx is a valid NSAnimationContext pointer provided by AppKit.
             let ctx = unsafe { ctx.as_ref() };
             ctx.setDuration(0.35);
-            let timing = unsafe {
-                CAMediaTimingFunction::functionWithName(kCAMediaTimingFunctionEaseInEaseOut)
-            };
+            let timing = CAMediaTimingFunction::functionWithName(unsafe { kCAMediaTimingFunctionEaseInEaseOut });
             ctx.setTimingFunction(Some(&*timing));
 
             // Animate sidebar container via raw msg_send on the animator proxy.
@@ -512,7 +511,8 @@ impl AppDelegate {
             let sb_proxy: *const AnyObject = unsafe { msg_send![sb_ptr, animator] };
             let _: () = unsafe { msg_send![sb_proxy, setFrame: target_sb_frame] };
 
-            // Animate scroll view
+            // Animate scroll view via raw msg_send on the animator proxy.
+            // (The animator proxy is an opaque AnyObject, not a typed NSScrollView.)
             let sv_proxy: *const AnyObject = unsafe { msg_send![sv_ptr, animator] };
             let _: () = unsafe { msg_send![sv_proxy, setFrame: target_sv_frame] };
         });
