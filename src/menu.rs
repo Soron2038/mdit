@@ -111,6 +111,16 @@ fn edit_menu(mtm: MainThreadMarker) -> Retained<NSMenuItem> {
     menu.addItem(&with_cmd(item("Heading 1", Some(sel!(applyH1:)), "1", mtm)));
     menu.addItem(&with_cmd(item("Heading 2", Some(sel!(applyH2:)), "2", mtm)));
     menu.addItem(&with_cmd(item("Heading 3", Some(sel!(applyH3:)), "3", mtm)));
+    menu.addItem(&NSMenuItem::separatorItem(mtm));
+
+    // Find submenu
+    let find_item = item("Find", None, "", mtm);
+    let find_menu = new_menu("Find", mtm);
+    find_menu.addItem(&with_cmd(item("Find\u{2026}", Some(sel!(openFindBar:)), "f", mtm)));
+    find_menu.addItem(&with_cmd(item("Find Next", Some(sel!(findNext:)), "g", mtm)));
+    find_menu.addItem(&with_cmd_shift(item("Find Previous", Some(sel!(findPrevious:)), "g", mtm)));
+    find_item.setSubmenu(Some(&find_menu));
+    menu.addItem(&find_item);
 
     wrap_in_top_item("Edit", menu, mtm)
 }
