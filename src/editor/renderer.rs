@@ -3,7 +3,7 @@
 //! # Pipeline
 //! 1. [`compute_attribute_runs`] walks the [`MarkdownSpan`] tree produced by the parser.
 //! 2. Each node kind dispatches to a specialized helper (`collect_heading`,
-//!    `collect_link`, [`collect_symmetric_marker`], …) that appends runs.
+//!    `collect_link`, `collect_symmetric_marker`, …) that appends runs.
 //! 3. [`fill_gaps`] fills any byte ranges not covered by a run with plain styling.
 //!
 //! Runs use UTF-8 byte offsets; [`crate::editor::apply`] converts them to
@@ -86,10 +86,10 @@ fn syntax_attrs(cursor_pos: Option<usize>, span_range: (usize, usize)) -> Attrib
     }
 }
 
-/// Clamp a span's source range to the actual text length.
+/// Clamp a source range to the actual text length.
 /// Avoids repeated `.min(text.len())` calls at each call site.
-fn clamp_span_range(span: &MarkdownSpan, text_len: usize) -> (usize, usize) {
-    (span.source_range.0, span.source_range.1.min(text_len))
+fn clamp_span_range(start: usize, end: usize, text_len: usize) -> (usize, usize) {
+    (start, end.min(text_len))
 }
 
 /// Handle any symmetric inline marker: open-marker | content | close-marker.
@@ -107,8 +107,8 @@ fn collect_symmetric_marker(
     runs: &mut Vec<AttributeRun>,
     table_infos: &mut Vec<TableInfo>,
 ) {
-    let (start, end) = clamp_span_range(span, text.len());
-    let m = marker_size.min(end - start);
+    let (start, end) = clamp_span_range(span.source_range.0, span.source_range.1, text.len());
+    let m = marker_size.min(end.saturating_sub(start));
     runs.push(AttributeRun { range: (start, start + m), attrs: syn.clone() });
     let mut child_attrs = inherited.to_vec();
     child_attrs.extend_from_slice(extra_attrs);
