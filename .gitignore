@@ -15,7 +15,10 @@ dist/
 # Git worktrees
 .worktrees/
 
-# Temporary test.md
-test.md 
+# SupePowers specs
+.superpowers/
 
+# Temporary test.md
+TEST.md 
 Sidebar Toggle Test.md
+

@@ -15,7 +15,7 @@ Erledigte Punkte bleiben abgehakt als Fortschritts-Dokumentation.
 
 ## Priorität 1 — Kern-Funktionen die fehlen
 
-- [ ] **Find & Replace (Cmd+F)**
+- [x] **Find & Replace (Cmd+F)**
   NSTextView hat ein eingebautes Find-Panel, das nur aktiviert werden muss (`usesFindPanel = true`).
   Zusätzlich: Menüeintrag unter `Edit > Find` verdrahten, `performFindPanelAction` korrekt weiterleiten.
   Relevante Dateien: `src/menu.rs`, `src/editor/text_view.rs`, `src/app.rs`
