@@ -409,12 +409,12 @@ impl AppDelegate {
 
         // Sidebar — formatting toolbar
         let content_h = (h - TAB_H - PATH_H).max(0.0);
+        // New tabs start in Viewer mode, so the sidebar begins hidden (width = 0).
         let sidebar = FormattingSidebar::new(mtm, content_h, target);
         sidebar.view().setFrame(NSRect::new(
             NSPoint::new(0.0, PATH_H),
-            NSSize::new(SIDEBAR_W, content_h),
+            NSSize::new(0.0, content_h),
         ));
-        // Sidebar is always visible regardless of mode.
         content.addSubview(sidebar.view());
 
         let _ = self.ivars().tab_bar.set(tab_bar);
@@ -424,19 +424,18 @@ impl AppDelegate {
 
     /// Frame for the active NSScrollView, positioned between the tab bar and path bar.
     ///
-    /// The sidebar is always visible, so the left edge is always offset by `SIDEBAR_W`.
     /// Returns `NSRect::ZERO` if the window is not yet initialised.
+    /// In Viewer mode the sidebar is hidden, so the frame starts at x:0 and uses full width.
     fn content_frame(&self) -> NSRect {
         let Some(win) = self.ivars().window.get() else {
             return NSRect::ZERO;
         };
         let bounds = win.contentView().unwrap().bounds();
-        let h = bounds.size.height;
-        let w = bounds.size.width;
-        NSRect::new(
-            NSPoint::new(SIDEBAR_W, PATH_H),
-            NSSize::new((w - SIDEBAR_W).max(0.0), (h - TAB_H - PATH_H).max(0.0)),
-        )
+        let mode = self.ivars().tab_manager.borrow()
+            .active()
+            .map(|t| t.mode.get())
+            .unwrap_or(ViewMode::Viewer);
+        content_target_frame(mode, bounds.size.width, bounds.size.height)
     }
 
     /// Returns true if the active tab is in Editor mode.
