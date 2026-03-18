@@ -1,3 +1,14 @@
+//! Converts a parsed Markdown AST into a flat list of [`AttributeRun`]s.
+//!
+//! # Pipeline
+//! 1. [`compute_attribute_runs`] walks the [`MarkdownSpan`] tree produced by the parser.
+//! 2. Each node kind dispatches to a specialized helper (`collect_heading`,
+//!    `collect_link`, [`collect_symmetric_marker`], …) that appends runs.
+//! 3. [`fill_gaps`] fills any byte ranges not covered by a run with plain styling.
+//!
+//! Runs use UTF-8 byte offsets; [`crate::editor::apply`] converts them to
+//! UTF-16 before applying to `NSTextStorage`.
+
 use crate::markdown::attributes::{AttributeSet, TextAttribute};
 use crate::markdown::parser::{MarkdownSpan, NodeKind};
 
@@ -75,6 +86,47 @@ fn syntax_attrs(cursor_pos: Option<usize>, span_range: (usize, usize)) -> Attrib
     }
 }
 
+/// Clamp a span's source range to the actual text length.
+/// Avoids repeated `.min(text.len())` calls at each call site.
+fn clamp_span_range(span: &MarkdownSpan, text_len: usize) -> (usize, usize) {
+    (span.source_range.0, span.source_range.1.min(text_len))
+}
+
+/// Handle any symmetric inline marker: open-marker | content | close-marker.
+///
+/// `marker_size` — byte width of the opening and closing markers (1 or 2).
+/// `extra_attrs` — `TextAttribute`s added on top of `inherited` for the content run.
+fn collect_symmetric_marker(
+    text: &str,
+    span: &MarkdownSpan,
+    cursor_pos: Option<usize>,
+    inherited: &[TextAttribute],
+    syn: &AttributeSet,
+    marker_size: usize,
+    extra_attrs: &[TextAttribute],
+    runs: &mut Vec<AttributeRun>,
+    table_infos: &mut Vec<TableInfo>,
+) {
+    let (start, end) = clamp_span_range(span, text.len());
+    let m = marker_size.min(end - start);
+    runs.push(AttributeRun { range: (start, start + m), attrs: syn.clone() });
+    let mut child_attrs = inherited.to_vec();
+    child_attrs.extend_from_slice(extra_attrs);
+    if span.children.is_empty() {
+        if start + m < end.saturating_sub(m) {
+            runs.push(AttributeRun {
+                range: (start + m, end - m),
+                attrs: AttributeSet::new(child_attrs),
+            });
+        }
+    } else {
+        for child in &span.children {
+            collect_runs(text, child, cursor_pos, &child_attrs, runs, table_infos);
+        }
+    }
+    runs.push(AttributeRun { range: (end - m, end), attrs: syn.clone() });
+}
+
 fn collect_runs(
     text: &str,
     span: &MarkdownSpan,
@@ -94,10 +146,12 @@ fn collect_runs(
 
     match &span.kind {
         NodeKind::Strong => {
-            collect_strong(text, span, cursor_pos, inherited, &syn, runs, table_infos);
+            collect_symmetric_marker(text, span, cursor_pos, inherited, &syn, 2,
+                &[TextAttribute::Bold], runs, table_infos);
         }
         NodeKind::Emph => {
-            collect_emph(text, span, cursor_pos, inherited, &syn, runs, table_infos);
+            collect_symmetric_marker(text, span, cursor_pos, inherited, &syn, 1,
+                &[TextAttribute::Italic], runs, table_infos);
         }
         NodeKind::Code => {
             collect_code(start, end, &syn, runs);
@@ -106,16 +160,23 @@ fn collect_runs(
             collect_heading(text, start, end, *level, &syn, runs);
         }
         NodeKind::Strikethrough => {
-            collect_strikethrough(text, span, cursor_pos, inherited, &syn, runs, table_infos);
+            collect_symmetric_marker(text, span, cursor_pos, inherited, &syn, 2,
+                &[TextAttribute::Strikethrough, TextAttribute::ForegroundColor("strikethrough")],
+                runs, table_infos);
         }
         NodeKind::Highlight => {
-            collect_highlight(text, span, cursor_pos, inherited, &syn, runs, table_infos);
+            collect_symmetric_marker(text, span, cursor_pos, inherited, &syn, 2,
+                &[TextAttribute::BackgroundColor("highlight_bg")], runs, table_infos);
         }
         NodeKind::Subscript => {
-            collect_subscript(text, span, cursor_pos, inherited, &syn, runs, table_infos);
+            collect_symmetric_marker(text, span, cursor_pos, inherited, &syn, 1,
+                &[TextAttribute::Subscript, TextAttribute::ForegroundColor("subscript")],
+                runs, table_infos);
         }
         NodeKind::Superscript => {
-            collect_superscript(text, span, cursor_pos, inherited, &syn, runs, table_infos);
+            collect_symmetric_marker(text, span, cursor_pos, inherited, &syn, 1,
+                &[TextAttribute::Superscript, TextAttribute::ForegroundColor("superscript")],
+                runs, table_infos);
         }
         NodeKind::Link { ref url } => {
             collect_link(text, span, cursor_pos, inherited, &syn, url, runs, table_infos);
@@ -187,65 +248,6 @@ fn collect_runs(
 // Extracted match-arm helpers
 // ---------------------------------------------------------------------------
 
-/// "**content**" — symmetric 2-char markers with Bold attribute.
-fn collect_strong(
-    text: &str,
-    span: &MarkdownSpan,
-    cursor_pos: Option<usize>,
-    inherited: &[TextAttribute],
-    syn: &AttributeSet,
-    runs: &mut Vec<AttributeRun>,
-    table_infos: &mut Vec<TableInfo>,
-) {
-    let (start, end) = (span.source_range.0, span.source_range.1.min(text.len()));
-    let m = 2.min(end - start);
-    runs.push(AttributeRun { range: (start, start + m), attrs: syn.clone() });
-    let mut child_attrs = inherited.to_vec();
-    child_attrs.push(TextAttribute::Bold);
-    if span.children.is_empty() {
-        if start + m < end.saturating_sub(m) {
-            runs.push(AttributeRun {
-                range: (start + m, end - m),
-                attrs: AttributeSet::new(child_attrs),
-            });
-        }
-    } else {
-        for child in &span.children {
-            collect_runs(text, child, cursor_pos, &child_attrs, runs, table_infos);
-        }
-    }
-    runs.push(AttributeRun { range: (end - m, end), attrs: syn.clone() });
-}
-
-/// "*content*" — symmetric 1-char markers with Italic attribute.
-fn collect_emph(
-    text: &str,
-    span: &MarkdownSpan,
-    cursor_pos: Option<usize>,
-    inherited: &[TextAttribute],
-    syn: &AttributeSet,
-    runs: &mut Vec<AttributeRun>,
-    table_infos: &mut Vec<TableInfo>,
-) {
-    let (start, end) = (span.source_range.0, span.source_range.1.min(text.len()));
-    runs.push(AttributeRun { range: (start, start + 1), attrs: syn.clone() });
-    let mut child_attrs = inherited.to_vec();
-    child_attrs.push(TextAttribute::Italic);
-    if span.children.is_empty() {
-        if start + 1 < end.saturating_sub(1) {
-            runs.push(AttributeRun {
-                range: (start + 1, end - 1),
-                attrs: AttributeSet::new(child_attrs),
-            });
-        }
-    } else {
-        for child in &span.children {
-            collect_runs(text, child, cursor_pos, &child_attrs, runs, table_infos);
-        }
-    }
-    runs.push(AttributeRun { range: (end - 1, end), attrs: syn.clone() });
-}
-
 /// "`content`" — 1-char backtick markers with inline-code styling.
 fn collect_code(
     start: usize,
@@ -306,127 +308,6 @@ fn collect_heading(
             });
         }
     }
-}
-
-/// "~~content~~" — symmetric 2-char markers with Strikethrough attribute.
-fn collect_strikethrough(
-    text: &str,
-    span: &MarkdownSpan,
-    cursor_pos: Option<usize>,
-    inherited: &[TextAttribute],
-    syn: &AttributeSet,
-    runs: &mut Vec<AttributeRun>,
-    table_infos: &mut Vec<TableInfo>,
-) {
-    let (start, end) = (span.source_range.0, span.source_range.1.min(text.len()));
-    let m = 2.min(end - start);
-    runs.push(AttributeRun { range: (start, start + m), attrs: syn.clone() });
-    let mut child_attrs = inherited.to_vec();
-    child_attrs.push(TextAttribute::Strikethrough);
-    child_attrs.push(TextAttribute::ForegroundColor("strikethrough"));
-    if span.children.is_empty() {
-        if start + m < end.saturating_sub(m) {
-            runs.push(AttributeRun {
-                range: (start + m, end - m),
-                attrs: AttributeSet::new(child_attrs),
-            });
-        }
-    } else {
-        for child in &span.children {
-            collect_runs(text, child, cursor_pos, &child_attrs, runs, table_infos);
-        }
-    }
-    runs.push(AttributeRun { range: (end - m, end), attrs: syn.clone() });
-}
-
-/// "==content==" — symmetric 2-char markers with highlight background.
-fn collect_highlight(
-    text: &str,
-    span: &MarkdownSpan,
-    cursor_pos: Option<usize>,
-    inherited: &[TextAttribute],
-    syn: &AttributeSet,
-    runs: &mut Vec<AttributeRun>,
-    table_infos: &mut Vec<TableInfo>,
-) {
-    let (start, end) = (span.source_range.0, span.source_range.1.min(text.len()));
-    let m = 2.min(end - start);
-    runs.push(AttributeRun { range: (start, start + m), attrs: syn.clone() });
-    let mut child_attrs = inherited.to_vec();
-    child_attrs.push(TextAttribute::BackgroundColor("highlight_bg"));
-    if span.children.is_empty() {
-        if start + m < end.saturating_sub(m) {
-            runs.push(AttributeRun {
-                range: (start + m, end - m),
-                attrs: AttributeSet::new(child_attrs),
-            });
-        }
-    } else {
-        for child in &span.children {
-            collect_runs(text, child, cursor_pos, &child_attrs, runs, table_infos);
-        }
-    }
-    runs.push(AttributeRun { range: (end - m, end), attrs: syn.clone() });
-}
-
-/// "~content~" — symmetric 1-char markers with subscript attribute.
-fn collect_subscript(
-    text: &str,
-    span: &MarkdownSpan,
-    cursor_pos: Option<usize>,
-    inherited: &[TextAttribute],
-    syn: &AttributeSet,
-    runs: &mut Vec<AttributeRun>,
-    table_infos: &mut Vec<TableInfo>,
-) {
-    let (start, end) = (span.source_range.0, span.source_range.1.min(text.len()));
-    runs.push(AttributeRun { range: (start, start + 1), attrs: syn.clone() });
-    let mut child_attrs = inherited.to_vec();
-    child_attrs.push(TextAttribute::Subscript);
-    child_attrs.push(TextAttribute::ForegroundColor("subscript"));
-    if span.children.is_empty() {
-        if start + 1 < end.saturating_sub(1) {
-            runs.push(AttributeRun {
-                range: (start + 1, end - 1),
-                attrs: AttributeSet::new(child_attrs),
-            });
-        }
-    } else {
-        for child in &span.children {
-            collect_runs(text, child, cursor_pos, &child_attrs, runs, table_infos);
-        }
-    }
-    runs.push(AttributeRun { range: (end - 1, end), attrs: syn.clone() });
-}
-
-/// "^content^" — symmetric 1-char markers with superscript attribute.
-fn collect_superscript(
-    text: &str,
-    span: &MarkdownSpan,
-    cursor_pos: Option<usize>,
-    inherited: &[TextAttribute],
-    syn: &AttributeSet,
-    runs: &mut Vec<AttributeRun>,
-    table_infos: &mut Vec<TableInfo>,
-) {
-    let (start, end) = (span.source_range.0, span.source_range.1.min(text.len()));
-    runs.push(AttributeRun { range: (start, start + 1), attrs: syn.clone() });
-    let mut child_attrs = inherited.to_vec();
-    child_attrs.push(TextAttribute::Superscript);
-    child_attrs.push(TextAttribute::ForegroundColor("superscript"));
-    if span.children.is_empty() {
-        if start + 1 < end.saturating_sub(1) {
-            runs.push(AttributeRun {
-                range: (start + 1, end - 1),
-                attrs: AttributeSet::new(child_attrs),
-            });
-        }
-    } else {
-        for child in &span.children {
-            collect_runs(text, child, cursor_pos, &child_attrs, runs, table_infos);
-        }
-    }
-    runs.push(AttributeRun { range: (end - 1, end), attrs: syn.clone() });
 }
 
 /// "[title](url)" — asymmetric markers with link styling.
@@ -642,7 +523,11 @@ fn collect_table(
     });
 }
 
-/// Fill gaps between runs with plain (unstyled) runs.
+/// Fill every byte range not covered by a run with a plain (unstyled) run.
+///
+/// The AST only produces runs for syntax-significant spans.  Gaps between
+/// spans (ordinary prose) must still receive the default body styling so
+/// `NSTextStorage` doesn't retain stale attributes from a previous edit.
 fn fill_gaps(text_len: usize, mut runs: Vec<AttributeRun>) -> Vec<AttributeRun> {
     runs.sort_by_key(|r| r.range.0);
     let mut result = Vec::new();
