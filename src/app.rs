@@ -9,7 +9,11 @@ use objc2_app_kit::{
     NSApplicationDelegate, NSBackingStoreType, NSBezelStyle, NSButton, NSColor, NSControl,
     NSImage, NSTextDelegate, NSTextView, NSTextViewDelegate, NSView, NSWindow,
     NSWindowDelegate, NSWindowStyleMask,
+    NSAnimationContext,
 };
+use objc2_quartz_core::{CAMediaTimingFunction, kCAMediaTimingFunctionEaseInEaseOut};
+use block2::StackBlock;
+use std::ptr::NonNull;
 use objc2_foundation::{
     ns_string, MainThreadMarker, NSArray, NSNotification, NSObject, NSObjectProtocol, NSPoint,
     NSRange, NSRect, NSSize, NSString,
@@ -446,42 +450,76 @@ impl AppDelegate {
 
     /// Toggle between Viewer and Editor mode for the active tab.
     fn toggle_mode(&self) {
-        let (new_mode, text_view, editor_delegate) = {
+        // ── 1. Collect state ──────────────────────────────────────────────────
+        let (new_mode, text_view, editor_delegate, scroll_view) = {
             let tm = self.ivars().tab_manager.borrow();
             let tab = match tm.active() {
                 Some(t) => t,
                 None => return,
             };
-            let current = tab.mode.get();
-            let new_mode = match current {
+            let new_mode = match tab.mode.get() {
                 ViewMode::Viewer => ViewMode::Editor,
                 ViewMode::Editor => ViewMode::Viewer,
             };
             tab.mode.set(new_mode);
-            (new_mode, tab.text_view.clone(), tab.editor_delegate.clone())
+            (
+                new_mode,
+                tab.text_view.clone(),
+                tab.editor_delegate.clone(),
+                tab.scroll_view.clone(),
+            )
         };
 
-        // Update delegate mode so rendering pipeline switches.
+        // ── 2. Non-visual changes (immediate) ─────────────────────────────────
         editor_delegate.set_mode(new_mode);
-
-        // Configure text view editability.
         text_view.setEditable(new_mode == ViewMode::Editor);
-
-        // Recompute scroll view frame.
-        let frame = self.content_frame();
-        {
-            let tm = self.ivars().tab_manager.borrow();
-            if let Some(t) = tm.active() {
-                t.scroll_view.setFrame(frame);
-            }
-        }
-
-        // Re-render with the new pipeline.
         if let Some(storage) = unsafe { text_view.textStorage() } {
             editor_delegate.reapply(&storage);
         }
-
         self.update_text_container_inset();
+
+        // ── 3. Compute target frames ───────────────────────────────────────────
+        let Some(win) = self.ivars().window.get() else { return };
+        let bounds = win.contentView().unwrap().bounds();
+        let (win_w, win_h) = (bounds.size.width, bounds.size.height);
+        let content_h = (win_h - TAB_H - PATH_H).max(0.0);
+
+        let target_sb_frame = sidebar_target_frame(new_mode, content_h);
+        let target_sv_frame = content_target_frame(new_mode, win_w, win_h);
+
+        // ── 4. Animated frame changes ──────────────────────────────────────────
+        let Some(sb) = self.ivars().sidebar.get() else { return };
+
+        // Use raw pointers for view references captured by the animation block.
+        // Safety: both views are owned by long-lived structs (FormattingSidebar
+        // lives in OnceCell, scroll_view is kept alive by the Retained below).
+        // The changes block is called synchronously before runAnimationGroup returns.
+        let sb_ptr: *const NSView = sb.view();
+        let sv_ptr: *const objc2_app_kit::NSScrollView = &*scroll_view;
+
+        // Bind to a named variable to avoid temporary lifetime issues.
+        let animation_block = StackBlock::new(move |ctx: NonNull<NSAnimationContext>| {
+            // Safety: ctx is a valid NSAnimationContext pointer provided by AppKit.
+            let ctx = unsafe { ctx.as_ref() };
+            ctx.setDuration(0.35);
+            let timing = unsafe {
+                CAMediaTimingFunction::functionWithName(kCAMediaTimingFunctionEaseInEaseOut)
+            };
+            ctx.setTimingFunction(Some(&*timing));
+
+            // Animate sidebar container via raw msg_send on the animator proxy.
+            // (The animator proxy is an opaque AnyObject, not a typed NSView.)
+            let sb_proxy: *const AnyObject = unsafe { msg_send![sb_ptr, animator] };
+            let _: () = unsafe { msg_send![sb_proxy, setFrame: target_sb_frame] };
+
+            // Animate scroll view
+            let sv_proxy: *const AnyObject = unsafe { msg_send![sv_ptr, animator] };
+            let _: () = unsafe { msg_send![sv_proxy, setFrame: target_sv_frame] };
+        });
+        NSAnimationContext::runAnimationGroup_completionHandler(
+            &animation_block,
+            None::<&block2::DynBlock<dyn Fn()>>,
+        );
     }
 
     /// Open a file by path — used by both the Open dialog and Finder/Dock open events.
