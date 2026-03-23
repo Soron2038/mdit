@@ -14,7 +14,7 @@ use objc2_app_kit::{
 };
 use objc2_foundation::{
     ns_string, MainThreadMarker, NSArray, NSNotification, NSObject, NSObjectProtocol, NSPoint,
-    NSRange, NSRect, NSSize, NSString,
+    NSRange, NSRect, NSSize, NSString, NSUserDefaults,
 };
 use objc2_quartz_core::{CAMediaTimingFunction, kCAMediaTimingFunctionEaseInEaseOut};
 
@@ -22,7 +22,7 @@ use mdit::editor::document_state::DocumentState;
 use mdit::editor::tab_manager::{TabCloseResult, TabManager};
 use mdit::editor::view_mode::ViewMode;
 use mdit::menu::build_main_menu;
-use mdit::ui::appearance::ColorScheme;
+use mdit::ui::appearance::{ColorScheme, ThemePreference};
 use mdit::ui::find_bar::{FindBar, FIND_H_COMPACT, FIND_H_EXPANDED};
 use mdit::ui::path_bar::PathBar;
 use mdit::ui::sidebar::{FormattingSidebar, SIDEBAR_W};
@@ -83,6 +83,8 @@ struct AppDelegateIvars {
     find_current: Cell<usize>,
     /// 0.0 = hidden; FIND_H_COMPACT or FIND_H_EXPANDED when visible.
     find_bar_height: Cell<f64>,
+    /// The user's persisted theme choice (loaded from NSUserDefaults on launch).
+    theme_pref: Cell<ThemePreference>,
 }
 
 define_class!(
@@ -101,7 +103,10 @@ define_class!(
                 .downcast::<NSApplication>()
                 .unwrap();
 
-            let initial_scheme = detect_scheme(&app);
+            let pref = load_theme_pref();
+            self.ivars().theme_pref.set(pref);
+            let system_is_dark = detect_is_dark(&app);
+            let initial_scheme = pref.resolve(system_is_dark);
 
             self.setup_window_and_menu(&app);
             self.setup_content_views();
@@ -233,17 +238,24 @@ define_class!(
 
         #[unsafe(method(applyLightMode:))]
         fn apply_light_mode(&self, _sender: &AnyObject) {
+            self.ivars().theme_pref.set(ThemePreference::Light);
+            save_theme_pref(ThemePreference::Light);
             self.apply_scheme(ColorScheme::light());
         }
 
         #[unsafe(method(applyDarkMode:))]
         fn apply_dark_mode(&self, _sender: &AnyObject) {
+            self.ivars().theme_pref.set(ThemePreference::Dark);
+            save_theme_pref(ThemePreference::Dark);
             self.apply_scheme(ColorScheme::dark());
         }
 
         #[unsafe(method(applySystemMode:))]
         fn apply_system_mode(&self, _sender: &AnyObject) {
-            let scheme = detect_scheme(&NSApplication::sharedApplication(self.mtm()));
+            self.ivars().theme_pref.set(ThemePreference::System);
+            save_theme_pref(ThemePreference::System);
+            let app = NSApplication::sharedApplication(self.mtm());
+            let scheme = ThemePreference::System.resolve(detect_is_dark(&app));
             self.apply_scheme(scheme);
         }
 
@@ -1432,22 +1444,39 @@ fn create_window(mtm: MainThreadMarker) -> Retained<NSWindow> {
 // Appearance detection
 // ---------------------------------------------------------------------------
 
-/// Detect the current system appearance and return the matching `ColorScheme`.
-fn detect_scheme(app: &NSApplication) -> ColorScheme {
+/// Return `true` when the system is currently in dark mode.
+fn detect_is_dark(app: &NSApplication) -> bool {
     let appearance = app.effectiveAppearance();
-    // NSAppearanceNameAqua / DarkAqua are extern statics (→ unsafe access).
-    let is_dark = unsafe {
+    unsafe {
         let names = NSArray::from_slice(&[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]);
         appearance
             .bestMatchFromAppearancesWithNames(&names)
             .map(|name| name.isEqualToString(NSAppearanceNameDarkAqua))
             .unwrap_or(false)
-    };
-    if is_dark {
-        ColorScheme::dark()
-    } else {
-        ColorScheme::light()
     }
+}
+
+const THEME_PREF_KEY: &str = "mditThemePreference";
+
+/// Persist the user's theme choice to `NSUserDefaults`.
+fn save_theme_pref(pref: ThemePreference) {
+    let key = NSString::from_str(THEME_PREF_KEY);
+    let val = NSString::from_str(pref.as_str());
+    unsafe {
+        let defaults = NSUserDefaults::standardUserDefaults();
+        defaults.setObject_forKey(Some(&*val), &key);
+    }
+}
+
+/// Load the user's theme choice from `NSUserDefaults`.
+/// Falls back to `ThemePreference::System` when no value is stored.
+fn load_theme_pref() -> ThemePreference {
+    let key = NSString::from_str(THEME_PREF_KEY);
+    let stored = NSUserDefaults::standardUserDefaults().stringForKey(&key);
+    stored
+        .as_deref()
+        .map(|s| ThemePreference::from_str(&s.to_string()))
+        .unwrap_or(ThemePreference::System)
 }
 
 // ---------------------------------------------------------------------------

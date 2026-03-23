@@ -17,7 +17,7 @@ block2 = "0.6"
 objc2-foundation = { version = "0.3.2", features = [
     "NSString", "NSAttributedString",
     "NSDictionary", "NSArray", "NSURL", "NSData",
-    "NSError", "NSValue",
+    "NSError", "NSValue", "NSUserDefaults",
 ] }
 objc2-app-kit = { version = "0.3.2", features = [
     "NSApplication",

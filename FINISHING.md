@@ -20,7 +20,7 @@ Erledigte Punkte bleiben abgehakt als Fortschritts-Dokumentation.
   Zusätzlich: Menüeintrag unter `Edit > Find` verdrahten, `performFindPanelAction` korrekt weiterleiten.
   Relevante Dateien: `src/menu.rs`, `src/editor/text_view.rs`, `src/app.rs`
 
-- [ ] **Settings-Persistenz (UserDefaults)**
+- [x] **Settings-Persistenz (UserDefaults)**
   Theme-Auswahl (Light/Dark/System) überlebt aktuell keinen Neustart — wird nicht gespeichert.
   Fix: `NSUserDefaults` beim Theme-Wechsel schreiben, beim App-Start auslesen.
   Relevante Dateien: `src/ui/appearance.rs`, `src/app.rs`

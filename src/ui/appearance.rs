@@ -100,6 +100,50 @@ impl ColorScheme {
 }
 
 // ---------------------------------------------------------------------------
+// Theme preference — persisted user choice (Light / Dark / System)
+// ---------------------------------------------------------------------------
+
+/// The theme the user has explicitly selected.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum ThemePreference {
+    Light,
+    Dark,
+    #[default]
+    System,
+}
+
+impl ThemePreference {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Light  => "light",
+            Self::Dark   => "dark",
+            Self::System => "system",
+        }
+    }
+
+    /// Parse a stored preference string.  Anything unknown falls back to `System`.
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "light" => Self::Light,
+            "dark"  => Self::Dark,
+            _       => Self::System,
+        }
+    }
+
+    /// Resolve this preference to a concrete `ColorScheme`.
+    ///
+    /// `system_is_dark` is the result of querying `NSApplication.effectiveAppearance` — pass
+    /// `false` when the system is in light mode.
+    pub fn resolve(self, system_is_dark: bool) -> ColorScheme {
+        match self {
+            Self::Light  => ColorScheme::light(),
+            Self::Dark   => ColorScheme::dark(),
+            Self::System => if system_is_dark { ColorScheme::dark() } else { ColorScheme::light() },
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Unit tests — pure Rust, no AppKit
 // ---------------------------------------------------------------------------
 
@@ -161,5 +205,37 @@ mod tests {
         let (r, g, b) = light.background;
         assert!(r > 0.5 && g > 0.5 && b > 0.5,
             "light bg should be light, got: {:?}", light.background);
+    }
+
+    // ThemePreference tests
+    #[test]
+    fn theme_preference_roundtrip() {
+        assert_eq!(ThemePreference::from_str(ThemePreference::Light.as_str()), ThemePreference::Light);
+        assert_eq!(ThemePreference::from_str(ThemePreference::Dark.as_str()), ThemePreference::Dark);
+        assert_eq!(ThemePreference::from_str(ThemePreference::System.as_str()), ThemePreference::System);
+    }
+
+    #[test]
+    fn theme_preference_unknown_falls_back_to_system() {
+        assert_eq!(ThemePreference::from_str("unknown"), ThemePreference::System);
+        assert_eq!(ThemePreference::from_str(""), ThemePreference::System);
+    }
+
+    #[test]
+    fn theme_preference_light_ignores_system_darkness() {
+        assert_eq!(ThemePreference::Light.resolve(false).background, ColorScheme::light().background);
+        assert_eq!(ThemePreference::Light.resolve(true).background, ColorScheme::light().background);
+    }
+
+    #[test]
+    fn theme_preference_dark_ignores_system_darkness() {
+        assert_eq!(ThemePreference::Dark.resolve(false).background, ColorScheme::dark().background);
+        assert_eq!(ThemePreference::Dark.resolve(true).background, ColorScheme::dark().background);
+    }
+
+    #[test]
+    fn theme_preference_system_follows_os() {
+        assert_eq!(ThemePreference::System.resolve(false).background, ColorScheme::light().background);
+        assert_eq!(ThemePreference::System.resolve(true).background, ColorScheme::dark().background);
     }
 }
