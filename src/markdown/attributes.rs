@@ -77,7 +77,7 @@ impl AttributeSet {
         let size = match level {
             1 => (base_size * 1.375).round() as u8,
             2 => (base_size * 1.125).round() as u8,
-            _ => base_size as u8,
+            _ => base_size.round() as u8,
         };
         let mut attrs = vec![
             TextAttribute::FontSize(size),
