@@ -660,6 +660,35 @@ impl AppDelegate {
         tm.active().map(|t| t.mode.get() == ViewMode::Editor).unwrap_or(false)
     }
 
+    /// Show the welcome overlay when the active document is empty; hide otherwise.
+    /// Also updates the frame (sidebar offset may have changed) and mode-dependent hint text.
+    /// When showing, brings the overlay to the front of the z-order so it sits above
+    /// the scroll view (which is re-added as a subview on every tab switch).
+    fn update_welcome_visibility(&self) {
+        let Some(overlay) = self.ivars().welcome_overlay.get() else { return };
+        // Borrow tab_manager, extract what we need, then drop before calling content_frame().
+        let (is_empty, mode) = {
+            let tm = self.ivars().tab_manager.borrow();
+            let Some(tab) = tm.active() else { return };
+            let is_empty = unsafe { tab.text_view.textStorage() }
+                .is_none_or(|s| s.length() == 0);
+            let mode = tab.mode.get();
+            (is_empty, mode)
+        };
+        overlay.set_visible(is_empty);
+        overlay.update_mode(mode);
+        overlay.set_frame(self.content_frame());
+        // Ensure overlay is above the scroll view in the z-order.
+        if is_empty {
+            if let Some(win) = self.ivars().window.get() {
+                let content = win.contentView().unwrap();
+                let view = overlay.view();
+                view.removeFromSuperview();
+                content.addSubview(view);
+            }
+        }
+    }
+
     /// Toggle between Viewer and Editor mode for the active tab.
     fn toggle_mode(&self) {
         // ── 1. Collect state ──────────────────────────────────────────────────
