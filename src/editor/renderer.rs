@@ -53,11 +53,12 @@ pub fn compute_attribute_runs(
     text: &str,
     spans: &[MarkdownSpan],
     cursor_pos: Option<usize>,
+    base_size: f64,
 ) -> RenderOutput {
     let mut runs = Vec::new();
     let mut table_infos = Vec::new();
     for span in spans {
-        collect_runs(text, span, cursor_pos, &[], &mut runs, &mut table_infos);
+        collect_runs(text, span, cursor_pos, base_size, &[], &mut runs, &mut table_infos);
     }
     RenderOutput {
         runs: fill_gaps(text.len(), runs),
@@ -101,6 +102,7 @@ fn collect_symmetric_marker(
     text: &str,
     span: &MarkdownSpan,
     cursor_pos: Option<usize>,
+    base_size: f64,
     inherited: &[TextAttribute],
     syn: &AttributeSet,
     marker_size: usize,
@@ -122,7 +124,7 @@ fn collect_symmetric_marker(
         }
     } else {
         for child in &span.children {
-            collect_runs(text, child, cursor_pos, &child_attrs, runs, table_infos);
+            collect_runs(text, child, cursor_pos, base_size, &child_attrs, runs, table_infos);
         }
     }
     runs.push(AttributeRun { range: (end - m, end), attrs: syn.clone() });
@@ -132,6 +134,7 @@ fn collect_runs(
     text: &str,
     span: &MarkdownSpan,
     cursor_pos: Option<usize>,
+    base_size: f64,
     inherited: &[TextAttribute],
     runs: &mut Vec<AttributeRun>,
     table_infos: &mut Vec<TableInfo>,
@@ -147,40 +150,40 @@ fn collect_runs(
 
     match &span.kind {
         NodeKind::Strong => {
-            collect_symmetric_marker(text, span, cursor_pos, inherited, &syn, 2,
+            collect_symmetric_marker(text, span, cursor_pos, base_size, inherited, &syn, 2,
                 &[TextAttribute::Bold], runs, table_infos);
         }
         NodeKind::Emph => {
-            collect_symmetric_marker(text, span, cursor_pos, inherited, &syn, 1,
+            collect_symmetric_marker(text, span, cursor_pos, base_size, inherited, &syn, 1,
                 &[TextAttribute::Italic], runs, table_infos);
         }
         NodeKind::Code => {
             collect_code(start, end, &syn, runs);
         }
         NodeKind::Heading { level } => {
-            collect_heading(text, start, end, *level, &syn, runs);
+            collect_heading(text, start, end, *level, base_size, &syn, runs);
         }
         NodeKind::Strikethrough => {
-            collect_symmetric_marker(text, span, cursor_pos, inherited, &syn, 2,
+            collect_symmetric_marker(text, span, cursor_pos, base_size, inherited, &syn, 2,
                 &[TextAttribute::Strikethrough, TextAttribute::ForegroundColor("strikethrough")],
                 runs, table_infos);
         }
         NodeKind::Highlight => {
-            collect_symmetric_marker(text, span, cursor_pos, inherited, &syn, 2,
+            collect_symmetric_marker(text, span, cursor_pos, base_size, inherited, &syn, 2,
                 &[TextAttribute::BackgroundColor("highlight_bg")], runs, table_infos);
         }
         NodeKind::Subscript => {
-            collect_symmetric_marker(text, span, cursor_pos, inherited, &syn, 1,
+            collect_symmetric_marker(text, span, cursor_pos, base_size, inherited, &syn, 1,
                 &[TextAttribute::Subscript, TextAttribute::ForegroundColor("subscript")],
                 runs, table_infos);
         }
         NodeKind::Superscript => {
-            collect_symmetric_marker(text, span, cursor_pos, inherited, &syn, 1,
+            collect_symmetric_marker(text, span, cursor_pos, base_size, inherited, &syn, 1,
                 &[TextAttribute::Superscript, TextAttribute::ForegroundColor("superscript")],
                 runs, table_infos);
         }
         NodeKind::Link { ref url } => {
-            collect_link(text, span, cursor_pos, inherited, &syn, url, runs, table_infos);
+            collect_link(text, span, cursor_pos, base_size, inherited, &syn, url, runs, table_infos);
         }
         NodeKind::CodeBlock { .. } => {
             collect_code_block(text, span, cursor_pos, runs);
@@ -208,18 +211,18 @@ fn collect_runs(
         }
         NodeKind::List => {
             for child in &span.children {
-                collect_runs(text, child, cursor_pos, inherited, runs, table_infos);
+                collect_runs(text, child, cursor_pos, base_size, inherited, runs, table_infos);
             }
         }
         NodeKind::Item => {
-            collect_item(text, span, cursor_pos, inherited, runs, table_infos);
+            collect_item(text, span, cursor_pos, base_size, inherited, runs, table_infos);
         }
         NodeKind::Table => {
-            collect_table(text, span, cursor_pos, runs, table_infos);
+            collect_table(text, span, cursor_pos, base_size, runs, table_infos);
         }
         NodeKind::TableRow { .. } | NodeKind::TableCell => {
             for child in &span.children {
-                collect_runs(text, child, cursor_pos, inherited, runs, table_infos);
+                collect_runs(text, child, cursor_pos, base_size, inherited, runs, table_infos);
             }
         }
         NodeKind::Footnote => {
@@ -238,7 +241,7 @@ fn collect_runs(
                 }
             } else {
                 for child in &span.children {
-                    collect_runs(text, child, cursor_pos, inherited, runs, table_infos);
+                    collect_runs(text, child, cursor_pos, base_size, inherited, runs, table_infos);
                 }
             }
         }
@@ -272,6 +275,7 @@ fn collect_heading(
     start: usize,
     end: usize,
     level: u8,
+    base_size: f64,
     syn: &AttributeSet,
     runs: &mut Vec<AttributeRun>,
 ) {
@@ -283,7 +287,7 @@ fn collect_heading(
         if start + prefix_len < end {
             runs.push(AttributeRun {
                 range: (start + prefix_len, end),
-                attrs: AttributeSet::for_heading(level, 16.0),
+                attrs: AttributeSet::for_heading(level, base_size),
             });
         }
     } else {
@@ -293,7 +297,7 @@ fn collect_heading(
             if start < nl_abs {
                 runs.push(AttributeRun {
                     range: (start, nl_abs),
-                    attrs: AttributeSet::for_heading(level, 16.0),
+                    attrs: AttributeSet::for_heading(level, base_size),
                 });
             }
             if nl_abs < end {
@@ -305,7 +309,7 @@ fn collect_heading(
         } else {
             runs.push(AttributeRun {
                 range: (start, end),
-                attrs: AttributeSet::for_heading(level, 16.0),
+                attrs: AttributeSet::for_heading(level, base_size),
             });
         }
     }
@@ -317,6 +321,7 @@ fn collect_link(
     text: &str,
     span: &MarkdownSpan,
     cursor_pos: Option<usize>,
+    base_size: f64,
     inherited: &[TextAttribute],
     syn: &AttributeSet,
     url: &str,
@@ -353,7 +358,7 @@ fn collect_link(
         }
     } else {
         for child in &span.children {
-            collect_runs(text, child, cursor_pos, &child_attrs, runs, table_infos);
+            collect_runs(text, child, cursor_pos, base_size, &child_attrs, runs, table_infos);
         }
     }
 
@@ -414,6 +419,7 @@ fn collect_item(
     text: &str,
     span: &MarkdownSpan,
     cursor_pos: Option<usize>,
+    base_size: f64,
     inherited: &[TextAttribute],
     runs: &mut Vec<AttributeRun>,
     table_infos: &mut Vec<TableInfo>,
@@ -432,7 +438,7 @@ fn collect_item(
         });
     }
     for child in &span.children {
-        collect_runs(text, child, cursor_pos, inherited, runs, table_infos);
+        collect_runs(text, child, cursor_pos, base_size, inherited, runs, table_infos);
     }
 }
 
@@ -441,6 +447,7 @@ fn collect_table(
     text: &str,
     span: &MarkdownSpan,
     cursor_pos: Option<usize>,
+    base_size: f64,
     runs: &mut Vec<AttributeRun>,
     table_infos: &mut Vec<TableInfo>,
 ) {
@@ -512,7 +519,7 @@ fn collect_table(
                 continue;
             }
             for child in &cell.children {
-                collect_runs(text, child, cursor_pos, &[], runs, table_infos);
+                collect_runs(text, child, cursor_pos, base_size, &[], runs, table_infos);
             }
         }
     }

@@ -105,7 +105,7 @@ define_class!(
                 let cursor_pos = self.ivars().cursor_pos.get();
                 let output = {
                     let spans = self.ivars().spans.borrow();
-                    compute_attribute_runs(&text, &spans, cursor_pos)
+                    compute_attribute_runs(&text, &spans, cursor_pos, 16.0)
                 };
                 let infos = {
                     let spans_ref = self.ivars().spans.borrow();
@@ -205,7 +205,7 @@ impl MditEditorDelegate {
             let cursor_pos = self.ivars().cursor_pos.get();
             let output = {
                 let spans = self.ivars().spans.borrow();
-                compute_attribute_runs(&text, &spans, cursor_pos)
+                compute_attribute_runs(&text, &spans, cursor_pos, 16.0)
             };
             let infos = {
                 let spans_ref = self.ivars().spans.borrow();
