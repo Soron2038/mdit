@@ -554,7 +554,7 @@ fn build_font(attrs: &AttributeSet) -> Retained<NSFont> {
         return unsafe { NSFont::systemFontOfSize_weight(0.001, NSFontWeightRegular) };
     }
 
-    let size = attrs.font_size(); // returns f64, default 16.0
+    let size = attrs.font_size().unwrap_or(16.0); // temporary — will be properly fixed in Task 3
     let bold = attrs.contains(&TextAttribute::Bold);
     let italic = attrs.contains(&TextAttribute::Italic);
     let mono = attrs.contains(&TextAttribute::Monospace);

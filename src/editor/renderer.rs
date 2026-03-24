@@ -283,7 +283,7 @@ fn collect_heading(
         if start + prefix_len < end {
             runs.push(AttributeRun {
                 range: (start + prefix_len, end),
-                attrs: AttributeSet::for_heading(level),
+                attrs: AttributeSet::for_heading(level, 16.0),
             });
         }
     } else {
@@ -293,7 +293,7 @@ fn collect_heading(
             if start < nl_abs {
                 runs.push(AttributeRun {
                     range: (start, nl_abs),
-                    attrs: AttributeSet::for_heading(level),
+                    attrs: AttributeSet::for_heading(level, 16.0),
                 });
             }
             if nl_abs < end {
@@ -305,7 +305,7 @@ fn collect_heading(
         } else {
             runs.push(AttributeRun {
                 range: (start, end),
-                attrs: AttributeSet::for_heading(level),
+                attrs: AttributeSet::for_heading(level, 16.0),
             });
         }
     }
