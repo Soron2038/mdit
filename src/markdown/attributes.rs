@@ -38,17 +38,14 @@ impl AttributeSet {
         self.0.contains(attr)
     }
 
-    pub fn font_size(&self) -> f64 {
-        self.0
-            .iter()
-            .find_map(|a| {
-                if let TextAttribute::FontSize(s) = a {
-                    Some(*s as f64)
-                } else {
-                    None
-                }
-            })
-            .unwrap_or(16.0)
+    pub fn font_size(&self) -> Option<f64> {
+        self.0.iter().find_map(|a| {
+            if let TextAttribute::FontSize(s) = a {
+                Some(*s as f64)
+            } else {
+                None
+            }
+        })
     }
 
     pub fn attrs(&self) -> &[TextAttribute] {
@@ -76,12 +73,11 @@ impl AttributeSet {
         Self::new(vec![TextAttribute::Bold, TextAttribute::Italic])
     }
 
-    pub fn for_heading(level: u8) -> Self {
-        let size: u8 = match level {
-            1 => 22,
-            2 => 18,
-            3 => 15,
-            _ => 16,
+    pub fn for_heading(level: u8, base_size: f64) -> Self {
+        let size = match level {
+            1 => (base_size * 1.375).round() as u8,
+            2 => (base_size * 1.125).round() as u8,
+            _ => base_size as u8,
         };
         let mut attrs = vec![
             TextAttribute::FontSize(size),
