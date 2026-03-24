@@ -40,6 +40,8 @@ pub struct MditEditorDelegateIvars {
     table_grids: RefCell<Vec<TableGrid>>,
     /// Current view mode: Viewer uses full rendering, Editor uses syntax highlighting.
     mode: Cell<ViewMode>,
+    /// Base font size in points. Set by AppDelegate; defaults to 16.0.
+    base_size: Cell<f64>,
 }
 
 // ---------------------------------------------------------------------------
@@ -92,7 +94,7 @@ define_class!(
                 let empty_tables = Vec::new();
                 let empty_infos = Vec::new();
                 let _ = apply_attribute_runs(
-                    text_storage, &text, &runs, &empty_tables, &empty_infos, &scheme,
+                    text_storage, &text, &runs, &empty_tables, &empty_infos, &scheme, self.base_size(),
                 );
                 self.ivars().applying.set(false);
                 // Clear drawing positions — no custom drawing in editor mode.
@@ -105,14 +107,14 @@ define_class!(
                 let cursor_pos = self.ivars().cursor_pos.get();
                 let output = {
                     let spans = self.ivars().spans.borrow();
-                    compute_attribute_runs(&text, &spans, cursor_pos, 16.0)
+                    compute_attribute_runs(&text, &spans, cursor_pos, self.base_size())
                 };
                 let infos = {
                     let spans_ref = self.ivars().spans.borrow();
                     collect_code_block_infos(&spans_ref, &text)
                 };
                 let positions = apply_attribute_runs(
-                    text_storage, &text, &output.runs, &output.table_infos, &infos, &scheme,
+                    text_storage, &text, &output.runs, &output.table_infos, &infos, &scheme, self.base_size(),
                 );
                 self.ivars().applying.set(false);
                 *self.ivars().heading_sep_positions.borrow_mut() = positions.heading_seps;
@@ -141,6 +143,7 @@ impl MditEditorDelegate {
             code_block_infos: RefCell::new(Vec::new()),
             table_grids: RefCell::new(Vec::new()),
             mode: Cell::new(ViewMode::Viewer),
+            base_size: Cell::new(16.0),
         });
         unsafe { msg_send![super(this), init] }
     }
@@ -195,7 +198,7 @@ impl MditEditorDelegate {
             };
             let empty_tables = Vec::new();
             let empty_infos = Vec::new();
-            let _ = apply_attribute_runs(storage, &text, &runs, &empty_tables, &empty_infos, &scheme);
+            let _ = apply_attribute_runs(storage, &text, &runs, &empty_tables, &empty_infos, &scheme, self.base_size());
             self.ivars().applying.set(false);
             self.ivars().heading_sep_positions.borrow_mut().clear();
             self.ivars().thematic_break_positions.borrow_mut().clear();
@@ -205,14 +208,14 @@ impl MditEditorDelegate {
             let cursor_pos = self.ivars().cursor_pos.get();
             let output = {
                 let spans = self.ivars().spans.borrow();
-                compute_attribute_runs(&text, &spans, cursor_pos, 16.0)
+                compute_attribute_runs(&text, &spans, cursor_pos, self.base_size())
             };
             let infos = {
                 let spans_ref = self.ivars().spans.borrow();
                 collect_code_block_infos(&spans_ref, &text)
             };
             let positions = apply_attribute_runs(
-                storage, &text, &output.runs, &output.table_infos, &infos, &scheme,
+                storage, &text, &output.runs, &output.table_infos, &infos, &scheme, self.base_size(),
             );
             self.ivars().applying.set(false);
             *self.ivars().heading_sep_positions.borrow_mut() = positions.heading_seps;
@@ -253,5 +256,15 @@ impl MditEditorDelegate {
     /// Set the view mode (Viewer or Editor).
     pub fn set_mode(&self, mode: ViewMode) {
         self.ivars().mode.set(mode);
+    }
+
+    /// Get the current base font size.
+    pub fn base_size(&self) -> f64 {
+        self.ivars().base_size.get()
+    }
+
+    /// Update the base font size (call reapply after to reflect the change).
+    pub fn set_base_size(&self, size: f64) {
+        self.ivars().base_size.set(size);
     }
 }
