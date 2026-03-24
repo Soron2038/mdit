@@ -128,6 +128,7 @@ pub fn apply_attribute_runs(
     table_infos: &[TableInfo],
     code_block_infos: &[CodeBlockInfo],
     scheme: &ColorScheme,
+    base_size: f64,
 ) -> LayoutPositions {
     let text_len_u16 = text.encode_utf16().count();
     if text_len_u16 == 0 {
@@ -139,12 +140,12 @@ pub fn apply_attribute_runs(
     }
 
     let full_range = NSRange { location: 0, length: text_len_u16 };
-    let body_font = serif_font(16.0, false, false);
+    let body_font = serif_font(base_size, false, false);
     let text_color = make_color(scheme.text);
     let para_style = build_para_style(ParaStyleConfig { line_spacing: 9.6, ..Default::default() });
 
     reset_to_body_style(storage, &body_font, &text_color, &para_style, full_range);
-    let (heading_seps, thematic_breaks) = apply_runs(storage, text, runs, text_len_u16, scheme);
+    let (heading_seps, thematic_breaks) = apply_runs(storage, text, runs, text_len_u16, scheme, base_size);
     let table_grids = process_tables(storage, text, table_infos, text_len_u16);
     apply_code_blocks(storage, code_block_infos, text_len_u16, scheme);
 
@@ -197,6 +198,7 @@ fn apply_runs(
     runs: &[AttributeRun],
     text_len_u16: usize,
     scheme: &ColorScheme,
+    base_size: f64,
 ) -> (Vec<usize>, Vec<usize>) {
     let mut heading_seps: Vec<usize> = Vec::new();
     let mut thematic_breaks: Vec<usize> = Vec::new();
@@ -204,7 +206,7 @@ fn apply_runs(
         let Some(range) = mk_utf16_range(text, run.range.0, run.range.1, text_len_u16) else {
             continue;
         };
-        apply_attr_set(storage, range, &run.attrs, scheme);
+        apply_attr_set(storage, range, &run.attrs, scheme, base_size);
 
         if run.attrs.contains(&TextAttribute::HeadingSeparator) {
             // Only add the spacing / record the position when non-whitespace
@@ -435,9 +437,10 @@ fn apply_attr_set(
     range: NSRange,
     attrs: &AttributeSet,
     scheme: &ColorScheme,
+    base_size: f64,
 ) {
     // Build font from the combination of Bold, Italic, Monospace, FontSize.
-    let font = build_font(attrs);
+    let font = build_font(attrs, base_size);
     unsafe {
         storage.addAttribute_value_range(NSFontAttributeName, font.as_ref(), range);
     }
@@ -546,7 +549,7 @@ fn apply_attr_set(
 ///
 /// Processes Bold + Italic + Monospace + FontSize together so they don't
 /// overwrite each other when applied one by one.
-fn build_font(attrs: &AttributeSet) -> Retained<NSFont> {
+fn build_font(attrs: &AttributeSet, base_size: f64) -> Retained<NSFont> {
     // Hidden characters (syntax markers) must not take up layout space.
     // Setting the font to near-zero eliminates the visual indentation caused
     // by invisible '# ' / '*' / '**' characters still occupying their advance width.
@@ -554,13 +557,13 @@ fn build_font(attrs: &AttributeSet) -> Retained<NSFont> {
         return unsafe { NSFont::systemFontOfSize_weight(0.001, NSFontWeightRegular) };
     }
 
-    let size = attrs.font_size().unwrap_or(16.0); // temporary — will be properly fixed in Task 3
+    let size = attrs.font_size().unwrap_or(base_size);
     let bold = attrs.contains(&TextAttribute::Bold);
     let italic = attrs.contains(&TextAttribute::Italic);
     let mono = attrs.contains(&TextAttribute::Monospace);
 
     if mono {
-        let code_size = if size == 16.0 { 14.0 } else { size };
+        let code_size = size - 2.0;
         let weight = unsafe { if bold { NSFontWeightBold } else { NSFontWeightRegular } };
         let base = NSFont::monospacedSystemFontOfSize_weight(code_size, weight);
         if italic {
