@@ -27,6 +27,7 @@ use mdit::ui::find_bar::{FindBar, FIND_H_COMPACT, FIND_H_EXPANDED};
 use mdit::ui::path_bar::PathBar;
 use mdit::ui::sidebar::{FormattingSidebar, SIDEBAR_W};
 use mdit::ui::tab_bar::TabBar;
+use mdit::ui::welcome_overlay::WelcomeOverlay;
 
 // ---------------------------------------------------------------------------
 // Layout constants
@@ -87,6 +88,7 @@ struct AppDelegateIvars {
     theme_pref: Cell<ThemePreference>,
     /// The user's persisted font size (loaded from NSUserDefaults on launch).
     body_font_size: Cell<f64>,
+    welcome_overlay: OnceCell<WelcomeOverlay>,
 }
 
 define_class!(
@@ -622,10 +624,17 @@ impl AppDelegate {
         let self_obj: &AnyObject = unsafe { &*(self as *const AppDelegate as *const AnyObject) };
         find_bar.set_search_delegate(self_obj);
 
+        // Welcome overlay — shown in empty documents, positioned above scroll view.
+        let welcome_overlay = WelcomeOverlay::new(mtm, content_target_frame(
+            ViewMode::Viewer, 0.0, w, h,
+        ));
+        content.addSubview(welcome_overlay.view());
+
         let _ = self.ivars().tab_bar.set(tab_bar);
         let _ = self.ivars().path_bar.set(path_bar);
         let _ = self.ivars().sidebar.set(sidebar);
         let _ = self.ivars().find_bar.set(find_bar);
+        let _ = self.ivars().welcome_overlay.set(welcome_overlay);
     }
 
     /// Frame for the active NSScrollView, positioned between the tab bar and path bar.
