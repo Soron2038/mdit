@@ -884,8 +884,7 @@ impl AppDelegate {
         let font_size = self.ivars().body_font_size.get();
         {
             let tm = self.ivars().tab_manager.borrow();
-            // Get the last tab (the one just added):
-            if let Some(tab) = tm.get(tm.len().saturating_sub(1)) {
+            if let Some(tab) = tm.get(new_idx) {
                 tab.editor_delegate.set_base_size(font_size);
             }
         }
@@ -1542,7 +1541,7 @@ fn save_font_size_pref(size: f64) {
 /// Falls back to `DEFAULT_FONT_SIZE` when no value is stored.
 fn load_font_size_pref() -> f64 {
     let key = NSString::from_str(FONT_SIZE_PREF_KEY);
-    let stored = unsafe { NSUserDefaults::standardUserDefaults().stringForKey(&key) };
+    let stored = NSUserDefaults::standardUserDefaults().stringForKey(&key);
     stored
         .as_deref()
         .and_then(|s| s.to_string().parse::<f64>().ok())
