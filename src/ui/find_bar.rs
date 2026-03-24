@@ -7,6 +7,7 @@ use std::cell::Cell;
 
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, Sel};
+use objc2_core_graphics::CGColor;
 use objc2::{msg_send, MainThreadOnly};
 use objc2_app_kit::{
     NSBezelStyle, NSButton, NSButtonType, NSColor, NSControl, NSFont, NSTextField, NSView,
@@ -482,7 +483,7 @@ impl FindBar {
 fn set_layer_bg(view: &NSView, (r, g, b): (f64, f64, f64)) {
     if let Some(layer) = view.layer() {
         let color = NSColor::colorWithRed_green_blue_alpha(r, g, b, 1.0);
-        let cg: *mut std::ffi::c_void = unsafe { msg_send![&*color, CGColor] };
+        let cg: *const CGColor = unsafe { msg_send![&*color, CGColor] };
         let raw: *const AnyObject = Retained::as_ptr(&layer).cast();
         let _: () = unsafe { msg_send![raw, setBackgroundColor: cg] };
     }

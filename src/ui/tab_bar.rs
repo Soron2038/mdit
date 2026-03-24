@@ -34,6 +34,7 @@ pub fn path_label(url: Option<&Path>) -> String {
 
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, Sel};
+use objc2_core_graphics::CGColor;
 use objc2::{msg_send, ClassType, MainThreadOnly};
 use objc2_app_kit::{
     NSBezelStyle, NSButton, NSButtonType, NSColor, NSControl, NSFont, NSImage, NSView,
@@ -107,14 +108,14 @@ impl TabBar {
                 Some((r, g, b)) => NSColor::colorWithRed_green_blue_alpha(r, g, b, 1.0),
                 None => NSColor::controlAccentColor(),
             };
-            let cg: *mut std::ffi::c_void = unsafe { msg_send![&*color, CGColor] };
+            let cg: *const CGColor = unsafe { msg_send![&*color, CGColor] };
             let raw: *const AnyObject = Retained::as_ptr(&layer).cast();
             let _: () = unsafe { msg_send![raw, setBackgroundColor: cg] };
         }
         // Separator color for bottom line
         if let Some(layer) = self.bottom_sep.layer() {
             let sep = NSColor::separatorColor();
-            let cg: *mut std::ffi::c_void = unsafe { msg_send![&*sep, CGColor] };
+            let cg: *const CGColor = unsafe { msg_send![&*sep, CGColor] };
             let raw: *const AnyObject = Retained::as_ptr(&layer).cast();
             let _: () = unsafe { msg_send![raw, setBackgroundColor: cg] };
         }

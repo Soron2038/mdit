@@ -9,6 +9,7 @@ use std::ffi::CStr;
 
 use objc2::rc::Retained;
 use objc2::runtime::{AnyClass, AnyObject, Sel};
+use objc2_core_graphics::CGColor;
 use objc2::{define_class, msg_send, DefinedClass, MainThreadOnly};
 use objc2_app_kit::{
     NSBezierPath, NSColor, NSEvent, NSFont, NSFontAttributeName,
@@ -569,7 +570,7 @@ impl FormattingSidebar {
     pub fn apply_separator_color(&self) {
         if let Some(layer) = self.border.layer() {
             let color = NSColor::separatorColor();
-            let cg: *mut std::ffi::c_void = unsafe { msg_send![&*color, CGColor] };
+            let cg: *const CGColor = unsafe { msg_send![&*color, CGColor] };
             let raw: *const AnyObject = Retained::as_ptr(&layer).cast();
             let _: () = unsafe { msg_send![raw, setBackgroundColor: cg] };
         }
