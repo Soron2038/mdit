@@ -519,6 +519,7 @@ define_class!(
                     }
                 }
             }
+            self.update_welcome_visibility();
         }
     }
 
@@ -779,6 +780,7 @@ impl AppDelegate {
                 }
             }
         }
+        self.update_welcome_visibility();
     }
 
     /// Open a file by path — used by both the Open dialog and Finder/Dock open events.
@@ -845,6 +847,7 @@ impl AppDelegate {
             }
         }
         self.rebuild_tab_bar();
+        self.update_welcome_visibility();
     }
 
     /// Active text view for formatting actions.
@@ -946,6 +949,7 @@ impl AppDelegate {
 
         self.rebuild_tab_bar();
         self.update_text_container_inset();
+        self.update_welcome_visibility();
     }
 
     /// Create a new empty tab and activate it.
@@ -969,6 +973,7 @@ impl AppDelegate {
             }
         }
         self.switch_to_tab(new_idx);
+        self.update_welcome_visibility();
     }
 
     /// Switch the color scheme and immediately re-render all documents.
@@ -1084,6 +1089,7 @@ impl AppDelegate {
                 if let Some(pb) = self.ivars().path_bar.get() {
                     pb.update(None);
                 }
+                self.update_welcome_visibility();
             }
             TabCloseResult::Removed { new_active } => {
                 self.switch_to_tab(new_active);
