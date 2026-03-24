@@ -29,7 +29,7 @@ Erledigte Punkte bleiben abgehakt als Fortschritts-Dokumentation.
 
 ## Priorität 2 — UX-Verbesserungen
 
-- [ ] **Schriftgröße konfigurierbar (Cmd++ / Cmd+–)**
+- [x] **Schriftgröße konfigurierbar (Cmd++ / Cmd+–)**
   Aktuell hardcoded 16pt in mehreren Dateien. Globale Konstante extrahieren,
   dann über Tastenkürzel und/oder Menüeintrag änderbar machen + in UserDefaults persistieren.
   Relevante Dateien: `src/ui/appearance.rs`, `src/editor/renderer.rs`, `src/menu.rs`
