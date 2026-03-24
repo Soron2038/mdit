@@ -196,6 +196,9 @@ define_class!(
                 t.scroll_view.setFrame(frame);
             }
             drop(tm);
+            if let Some(overlay) = self.ivars().welcome_overlay.get() {
+                overlay.set_frame(frame);
+            }
             self.update_text_container_inset();
         }
     }
