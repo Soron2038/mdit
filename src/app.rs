@@ -85,6 +85,8 @@ struct AppDelegateIvars {
     find_bar_height: Cell<f64>,
     /// The user's persisted theme choice (loaded from NSUserDefaults on launch).
     theme_pref: Cell<ThemePreference>,
+    /// The user's persisted font size (loaded from NSUserDefaults on launch).
+    body_font_size: Cell<f64>,
 }
 
 define_class!(
@@ -105,6 +107,8 @@ define_class!(
 
             let pref = load_theme_pref();
             self.ivars().theme_pref.set(pref);
+            let font_size = load_font_size_pref();
+            self.ivars().body_font_size.set(font_size);
             let system_is_dark = detect_is_dark(&app);
             let initial_scheme = pref.resolve(system_is_dark);
 
@@ -257,6 +261,25 @@ define_class!(
             let app = NSApplication::sharedApplication(self.mtm());
             let scheme = ThemePreference::System.resolve(detect_is_dark(&app));
             self.apply_scheme(scheme);
+        }
+
+        // ── Font size ──────────────────────────────────────────────────────────
+
+        #[unsafe(method(increaseFontSize:))]
+        fn increase_font_size_action(&self, _sender: &AnyObject) {
+            let new_size = (self.ivars().body_font_size.get() + 1.0).min(MAX_FONT_SIZE);
+            self.apply_font_size(new_size);
+        }
+
+        #[unsafe(method(decreaseFontSize:))]
+        fn decrease_font_size_action(&self, _sender: &AnyObject) {
+            let new_size = (self.ivars().body_font_size.get() - 1.0).max(MIN_FONT_SIZE);
+            self.apply_font_size(new_size);
+        }
+
+        #[unsafe(method(resetFontSize:))]
+        fn reset_font_size_action(&self, _sender: &AnyObject) {
+            self.apply_font_size(DEFAULT_FONT_SIZE);
         }
 
         // ── View mode toggle ───────────────────────────────────────────
@@ -858,6 +881,14 @@ impl AppDelegate {
         tab.text_view
             .setDelegate(Some(ProtocolObject::from_ref(self)));
         let new_idx = self.ivars().tab_manager.borrow_mut().add(tab);
+        let font_size = self.ivars().body_font_size.get();
+        {
+            let tm = self.ivars().tab_manager.borrow();
+            // Get the last tab (the one just added):
+            if let Some(tab) = tm.get(tm.len().saturating_sub(1)) {
+                tab.editor_delegate.set_base_size(font_size);
+            }
+        }
         self.switch_to_tab(new_idx);
     }
 
@@ -885,6 +916,20 @@ impl AppDelegate {
         }
         if let Some(tb) = self.ivars().tab_bar.get() {
             tb.apply_colors(Some(scheme.accent));
+        }
+    }
+
+    /// Apply a new base font size to all open tabs and persist it.
+    fn apply_font_size(&self, size: f64) {
+        self.ivars().body_font_size.set(size);
+        save_font_size_pref(size);
+
+        let tm = self.ivars().tab_manager.borrow();
+        for tab in tm.iter() {
+            tab.editor_delegate.set_base_size(size);
+            if let Some(storage) = unsafe { tab.text_view.textStorage() } {
+                tab.editor_delegate.reapply(&storage);
+            }
         }
     }
 
@@ -1457,6 +1502,10 @@ fn detect_is_dark(app: &NSApplication) -> bool {
 }
 
 const THEME_PREF_KEY: &str = "mditThemePreference";
+const FONT_SIZE_PREF_KEY: &str = "mditFontSize";
+const DEFAULT_FONT_SIZE: f64 = 16.0;
+const MIN_FONT_SIZE: f64 = 12.0;
+const MAX_FONT_SIZE: f64 = 24.0;
 
 /// Persist the user's theme choice to `NSUserDefaults`.
 fn save_theme_pref(pref: ThemePreference) {
@@ -1477,6 +1526,27 @@ fn load_theme_pref() -> ThemePreference {
         .as_deref()
         .map(|s| ThemePreference::from_str(&s.to_string()))
         .unwrap_or(ThemePreference::System)
+}
+
+/// Persist the user's font size to `NSUserDefaults`.
+fn save_font_size_pref(size: f64) {
+    let key = NSString::from_str(FONT_SIZE_PREF_KEY);
+    let val = NSString::from_str(&size.to_string());
+    unsafe {
+        let defaults = NSUserDefaults::standardUserDefaults();
+        defaults.setObject_forKey(Some(&*val), &key);
+    }
+}
+
+/// Load the user's font size from `NSUserDefaults`.
+/// Falls back to `DEFAULT_FONT_SIZE` when no value is stored.
+fn load_font_size_pref() -> f64 {
+    let key = NSString::from_str(FONT_SIZE_PREF_KEY);
+    let stored = unsafe { NSUserDefaults::standardUserDefaults().stringForKey(&key) };
+    stored
+        .as_deref()
+        .and_then(|s| s.to_string().parse::<f64>().ok())
+        .unwrap_or(DEFAULT_FONT_SIZE)
 }
 
 // ---------------------------------------------------------------------------
