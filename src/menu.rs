@@ -157,6 +157,10 @@ fn view_menu(mtm: MainThreadMarker) -> Retained<NSMenuItem> {
     )));
     appearance_item.setSubmenu(Some(&appearance_menu));
     menu.addItem(&appearance_item);
+    menu.addItem(&NSMenuItem::separatorItem(mtm));
+    menu.addItem(&with_cmd(item("Increase Font Size", Some(sel!(increaseFontSize:)), "+", mtm)));
+    menu.addItem(&with_cmd(item("Decrease Font Size", Some(sel!(decreaseFontSize:)), "-", mtm)));
+    menu.addItem(&with_cmd(item("Default Font Size", Some(sel!(resetFontSize:)), "0", mtm)));
 
     wrap_in_top_item("View", menu, mtm)
 }
