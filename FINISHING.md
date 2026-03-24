@@ -34,7 +34,7 @@ Erledigte Punkte bleiben abgehakt als Fortschritts-Dokumentation.
   dann über Tastenkürzel und/oder Menüeintrag änderbar machen + in UserDefaults persistieren.
   Relevante Dateien: `src/ui/appearance.rs`, `src/editor/renderer.rs`, `src/menu.rs`
 
-- [ ] **Wordcount in der Path-Bar**
+- [x] **Wordcount in der Path-Bar**
   Wörter und Zeichen live zählen, in der Path-Bar neben dem Dateipfad anzeigen.
   Nur im Editor-Modus sinnvoll; im Viewer-Modus optional ausblenden.
   Relevante Dateien: `src/ui/path_bar.rs`, `src/editor/document_state.rs`

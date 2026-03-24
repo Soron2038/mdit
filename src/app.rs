@@ -508,6 +508,15 @@ define_class!(
                 }
                 self.rebuild_tab_bar();
             }
+            // Update word/char count in path bar on every text change.
+            if let Some(pb) = self.ivars().path_bar.get() {
+                let tm = self.ivars().tab_manager.borrow();
+                if let Some(t) = tm.active() {
+                    if let Some(storage) = unsafe { t.text_view.textStorage() } {
+                        pb.update_wordcount(&storage.string().to_string());
+                    }
+                }
+            }
         }
     }
 
@@ -722,6 +731,16 @@ impl AppDelegate {
             let count = self.ivars().find_matches.borrow().len();
             self.update_find_bar_height_for_matches(count, new_mode);
         }
+
+        // Show/hide the word count field based on the new mode.
+        if let Some(pb) = self.ivars().path_bar.get() {
+            pb.set_wordcount_visible(new_mode == ViewMode::Editor, win_w);
+            if new_mode == ViewMode::Editor {
+                if let Some(storage) = unsafe { text_view.textStorage() } {
+                    pb.update_wordcount(&storage.string().to_string());
+                }
+            }
+        }
     }
 
     /// Open a file by path — used by both the Open dialog and Finder/Dock open events.
@@ -779,6 +798,13 @@ impl AppDelegate {
         }
         if let Some(pb) = self.ivars().path_bar.get() {
             pb.update(Some(path.as_path()));
+            // Pre-compute word count so it's ready when editor mode is toggled.
+            let tm = self.ivars().tab_manager.borrow();
+            if let Some(t) = tm.active() {
+                if let Some(storage) = unsafe { t.text_view.textStorage() } {
+                    pb.update_wordcount(&storage.string().to_string());
+                }
+            }
         }
         self.rebuild_tab_bar();
     }
@@ -859,9 +885,25 @@ impl AppDelegate {
 
         // Update path bar
         if let Some(pb) = self.ivars().path_bar.get() {
-            let tm = self.ivars().tab_manager.borrow();
-            let url = tm.get(index).and_then(|t| t.url.borrow().clone());
+            let (url, wordcount, is_editor) = {
+                let tm = self.ivars().tab_manager.borrow();
+                let url = tm.get(index).and_then(|t| t.url.borrow().clone());
+                let wordcount = tm.get(index).and_then(|t| {
+                    unsafe { t.text_view.textStorage() }
+                        .map(|s| s.string().to_string())
+                });
+                let is_editor = tm
+                    .get(index)
+                    .map(|t| t.mode.get() == ViewMode::Editor)
+                    .unwrap_or(false);
+                (url, wordcount, is_editor)
+            };
             pb.update(url.as_deref());
+            if let Some(text) = wordcount {
+                pb.update_wordcount(&text);
+            }
+            let win_w = win.contentView().unwrap().bounds().size.width;
+            pb.set_wordcount_visible(is_editor, win_w);
         }
 
         self.rebuild_tab_bar();
