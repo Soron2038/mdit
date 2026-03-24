@@ -39,7 +39,7 @@ Erledigte Punkte bleiben abgehakt als Fortschritts-Dokumentation.
   Nur im Editor-Modus sinnvoll; im Viewer-Modus optional ausblenden.
   Relevante Dateien: `src/ui/path_bar.rs`, `src/editor/document_state.rs`
 
-- [ ] **Feature-Discoverability: Cmd+E Hinweis**
+- [x] **Feature-Discoverability: Cmd+E Hinweis**
   Das Viewer/Editor-Toggle (Cmd+E) ist das Kernfeature, aber vollständig unsichtbar.
   Einmaligen Tooltip oder Overlay beim ersten Start einblenden (via UserDefaults-Flag "hasSeenModeHint").
   Alternativ: Permanenter Hinweis im leeren Dokument-Zustand ("Drücke Cmd+E für Viewer-Modus").
