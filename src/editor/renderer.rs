@@ -478,15 +478,16 @@ fn collect_task_item_viewer(
     let marker_slice = &text[start..marker_end];
     if let Some(bracket_rel) = marker_slice.find('[') {
         let bracket_abs = start + bracket_rel;
-        // "- " prefix: styled as list marker
+        // Hide the entire marker prefix ("- [ ] " or "- [x] ") in viewer mode.
+        // The "- " prefix and "[ ] "/" [x] " are all hidden; the checkbox overlay replaces them.
+        let checkbox_end = (bracket_abs + 4).min(marker_end);
+        // Hide "- " prefix
         if start < bracket_abs {
             runs.push(AttributeRun {
                 range: (start, bracket_abs),
-                attrs: AttributeSet::for_list_marker(),
+                attrs: AttributeSet::syntax_hidden(),
             });
         }
-        // "[ ] " or "[x] " (bracket + check + bracket + space = 4 bytes): hidden + TaskCheckbox
-        let checkbox_end = (bracket_abs + 4).min(marker_end);
         runs.push(AttributeRun {
             range: (bracket_abs, checkbox_end),
             attrs: AttributeSet::new(vec![
