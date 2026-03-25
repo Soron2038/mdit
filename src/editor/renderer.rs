@@ -478,18 +478,14 @@ fn collect_task_item_viewer(
     let marker_slice = &text[start..marker_end];
     if let Some(bracket_rel) = marker_slice.find('[') {
         let bracket_abs = start + bracket_rel;
-        // Hide the entire marker prefix ("- [ ] " or "- [x] ") in viewer mode.
-        // The "- " prefix and "[ ] "/" [x] " are all hidden; the checkbox overlay replaces them.
+        // Hide the entire marker ("- [ ] " or "- [x] ") visually but keep its
+        // advance width so the checkbox overlay has space and text doesn't overlap.
+        // Using Hidden (transparent color) WITHOUT syntax_hidden (which shrinks font
+        // to 0.001pt and eliminates advance width).
         let checkbox_end = (bracket_abs + 4).min(marker_end);
-        // Hide "- " prefix
-        if start < bracket_abs {
-            runs.push(AttributeRun {
-                range: (start, bracket_abs),
-                attrs: AttributeSet::syntax_hidden(),
-            });
-        }
+        // Make entire "- [ ] " / "- [x] " range transparent + carry TaskCheckbox.
         runs.push(AttributeRun {
-            range: (bracket_abs, checkbox_end),
+            range: (start, checkbox_end),
             attrs: AttributeSet::new(vec![
                 TextAttribute::Hidden,
                 TextAttribute::TaskCheckbox { checked, byte_offset: bracket_abs },
