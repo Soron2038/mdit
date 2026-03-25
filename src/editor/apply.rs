@@ -5,15 +5,14 @@
 //! `apply_attribute_runs` coordinates four phases: reset, per-run styling,
 //! table layout, and syntax highlighting.
 
-use objc2::rc::Retained;
 use objc2::msg_send;
+use objc2::rc::Retained;
 use objc2_app_kit::{
     NSBackgroundColorAttributeName, NSColor, NSFont, NSFontAttributeName,
     NSFontDescriptorSymbolicTraits, NSFontWeightBold, NSFontWeightRegular,
     NSForegroundColorAttributeName, NSKernAttributeName, NSLinkAttributeName,
-    NSMutableParagraphStyle, NSParagraphStyleAttributeName,
-    NSStrikethroughStyleAttributeName, NSSuperscriptAttributeName,
-    NSUnderlineStyleAttributeName, NSTextStorage,
+    NSMutableParagraphStyle, NSParagraphStyleAttributeName, NSStrikethroughStyleAttributeName,
+    NSSuperscriptAttributeName, NSTextStorage, NSUnderlineStyleAttributeName,
 };
 use objc2_foundation::{NSNumber, NSRange, NSSize, NSString, NSURL};
 
@@ -67,16 +66,19 @@ fn collect_recursive(spans: &[MarkdownSpan], text: &str, out: &mut Vec<CodeBlock
             let code_offset = block_slice.find('\n').map(|p| p + 1).unwrap_or(0);
             let code_start_byte = block_start + code_offset;
             let code_slice = &text[code_start_byte..span.source_range.1.min(text.len())];
-            let first_line_len = code_slice.find('\n').map(|p| p + 1).unwrap_or(code_slice.len());
+            let first_line_len = code_slice
+                .find('\n')
+                .map(|p| p + 1)
+                .unwrap_or(code_slice.len());
             let code_first_line_end_byte = code_start_byte + first_line_len;
 
             out.push(CodeBlockInfo {
-                start_utf16:               byte_to_utf16(text, block_start),
-                end_utf16:                 byte_to_utf16(text, span.source_range.1),
-                code_start_utf16:          byte_to_utf16(text, code_start_byte),
+                start_utf16: byte_to_utf16(text, block_start),
+                end_utf16: byte_to_utf16(text, span.source_range.1),
+                code_start_utf16: byte_to_utf16(text, code_start_byte),
                 first_code_line_end_utf16: byte_to_utf16(text, code_first_line_end_byte),
-                text:                      code.clone(),
-                language:                  language.clone(),
+                text: code.clone(),
+                language: language.clone(),
             });
         }
         collect_recursive(&span.children, text, out);
@@ -154,17 +156,29 @@ pub fn apply_attribute_runs(
         };
     }
 
-    let full_range = NSRange { location: 0, length: text_len_u16 };
+    let full_range = NSRange {
+        location: 0,
+        length: text_len_u16,
+    };
     let body_font = serif_font(base_size, false, false);
     let text_color = make_color(scheme.text);
-    let para_style = build_para_style(ParaStyleConfig { line_spacing: 9.6, ..Default::default() });
+    let para_style = build_para_style(ParaStyleConfig {
+        line_spacing: 9.6,
+        ..Default::default()
+    });
 
     reset_to_body_style(storage, &body_font, &text_color, &para_style, full_range);
-    let (heading_seps, thematic_breaks, checkboxes) = apply_runs(storage, text, runs, text_len_u16, scheme, base_size);
+    let (heading_seps, thematic_breaks, checkboxes) =
+        apply_runs(storage, text, runs, text_len_u16, scheme, base_size);
     let table_grids = process_tables(storage, text, table_infos, text_len_u16);
     apply_code_blocks(storage, code_block_infos, text_len_u16, scheme);
 
-    LayoutPositions { heading_seps, thematic_breaks, table_grids, checkboxes }
+    LayoutPositions {
+        heading_seps,
+        thematic_breaks,
+        table_grids,
+        checkboxes,
+    }
 }
 
 /// Reset the entire storage to the default body style.
@@ -180,21 +194,9 @@ fn reset_to_body_style(
     full_range: NSRange,
 ) {
     unsafe {
-        storage.addAttribute_value_range(
-            NSFontAttributeName,
-            body_font,
-            full_range,
-        );
-        storage.addAttribute_value_range(
-            NSForegroundColorAttributeName,
-            text_color,
-            full_range,
-        );
-        storage.addAttribute_value_range(
-            NSParagraphStyleAttributeName,
-            para_style,
-            full_range,
-        );
+        storage.addAttribute_value_range(NSFontAttributeName, body_font, full_range);
+        storage.addAttribute_value_range(NSForegroundColorAttributeName, text_color, full_range);
+        storage.addAttribute_value_range(NSParagraphStyleAttributeName, para_style, full_range);
         // Clear attributes that only apply to specific spans.
         storage.removeAttribute_range(NSBackgroundColorAttributeName, full_range);
         storage.removeAttribute_range(NSStrikethroughStyleAttributeName, full_range);
@@ -233,7 +235,11 @@ fn apply_runs(
             if has_content_before {
                 // Add extra space above the heading paragraph so the separator
                 // line has visual breathing room.
-                let heading_style = build_para_style(ParaStyleConfig { line_spacing: 9.6, spacing_before: 20.0, ..Default::default() });
+                let heading_style = build_para_style(ParaStyleConfig {
+                    line_spacing: 9.6,
+                    spacing_before: 20.0,
+                    ..Default::default()
+                });
                 unsafe {
                     storage.addAttribute_value_range(
                         NSParagraphStyleAttributeName,
@@ -250,7 +256,11 @@ fn apply_runs(
         }
 
         for attr in run.attrs.attrs() {
-            if let TextAttribute::TaskCheckbox { checked, byte_offset } = attr {
+            if let TextAttribute::TaskCheckbox {
+                checked,
+                byte_offset,
+            } = attr
+            {
                 checkboxes.push(CheckboxInfo {
                     utf16_pos: range.location,
                     checked: *checked,
@@ -283,7 +293,10 @@ fn process_tables(
             for row_pipes in &table_info.row_pipes {
                 for &pipe_pos in row_pipes {
                     let u16_pos = byte_to_utf16(text, pipe_pos);
-                    let range = NSRange { location: u16_pos, length: 1 };
+                    let range = NSRange {
+                        location: u16_pos,
+                        length: 1,
+                    };
                     let kern_value = NSNumber::numberWithFloat(10.0);
                     unsafe {
                         storage.addAttribute_value_range(
@@ -302,7 +315,11 @@ fn process_tables(
                 let Some(row_range) = mk_utf16_range(text, row_start, row_end, text_len_u16) else {
                     continue;
                 };
-                let style = build_para_style(ParaStyleConfig { spacing_before: 10.0, spacing_after: 10.0, ..Default::default() });
+                let style = build_para_style(ParaStyleConfig {
+                    spacing_before: 10.0,
+                    spacing_after: 10.0,
+                    ..Default::default()
+                });
                 unsafe {
                     storage.addAttribute_value_range(
                         NSParagraphStyleAttributeName,
@@ -317,7 +334,10 @@ fn process_tables(
                 let sep_start = table_info.row_ranges[0].1;
                 let sep_end = table_info.row_ranges[1].0;
                 if let Some(sep_range) = mk_utf16_range(text, sep_start, sep_end, text_len_u16) {
-                    let collapsed = build_para_style(ParaStyleConfig { max_line_height: Some(0.001), ..Default::default() });
+                    let collapsed = build_para_style(ParaStyleConfig {
+                        max_line_height: Some(0.001),
+                        ..Default::default()
+                    });
                     unsafe {
                         storage.addAttribute_value_range(
                             NSParagraphStyleAttributeName,
@@ -352,7 +372,11 @@ fn process_tables(
                 Vec::new()
             };
 
-            table_grids.push(TableGrid { column_seps, row_seps, bounds });
+            table_grids.push(TableGrid {
+                column_seps,
+                row_seps,
+                bounds,
+            });
         } else {
             // Cursor inside: only bounds for border, no grid lines.
             table_grids.push(TableGrid {
@@ -385,13 +409,13 @@ fn apply_code_blocks(
             location: info.start_utf16,
             length: info.end_utf16 - info.start_utf16,
         };
-        let style = build_para_style(ParaStyleConfig { line_spacing: 9.6, indent: 10.0, ..Default::default() });
+        let style = build_para_style(ParaStyleConfig {
+            line_spacing: 9.6,
+            indent: 10.0,
+            ..Default::default()
+        });
         unsafe {
-            storage.addAttribute_value_range(
-                NSParagraphStyleAttributeName,
-                style.as_ref(),
-                range,
-            );
+            storage.addAttribute_value_range(NSParagraphStyleAttributeName, style.as_ref(), range);
         }
         // Add spacing before the first code line so it breathes below the separator.
         if info.code_start_utf16 < info.first_code_line_end_utf16 {
@@ -400,7 +424,10 @@ fn apply_code_blocks(
                 length: info.first_code_line_end_utf16 - info.code_start_utf16,
             };
             let spacing_style = build_para_style(ParaStyleConfig {
-                line_spacing: 9.6, indent: 10.0, spacing_before: 4.0, ..Default::default()
+                line_spacing: 9.6,
+                indent: 10.0,
+                spacing_before: 4.0,
+                ..Default::default()
             });
             unsafe {
                 storage.addAttribute_value_range(
@@ -425,19 +452,20 @@ fn apply_code_blocks(
             // Map byte offsets within info.text to UTF-16 positions in the
             // full document.
             let span_start = span.range.0.min(info.text.len());
-            let span_end   = span.range.1.min(info.text.len());
+            let span_end = span.range.1.min(info.text.len());
             if span_start >= span_end {
                 continue;
             }
-            let s_u16 = info.code_start_utf16
-                + info.text[..span_start].encode_utf16().count();
-            let e_u16 = info.code_start_utf16
-                + info.text[..span_end].encode_utf16().count();
+            let s_u16 = info.code_start_utf16 + info.text[..span_start].encode_utf16().count();
+            let e_u16 = info.code_start_utf16 + info.text[..span_end].encode_utf16().count();
             // Offsets are within info.text (not document bytes), so mk_utf16_range doesn't apply.
             if s_u16 >= e_u16 || e_u16 > text_len_u16 {
                 continue;
             }
-            let range = NSRange { location: s_u16, length: e_u16 - s_u16 };
+            let range = NSRange {
+                location: s_u16,
+                length: e_u16 - s_u16,
+            };
             let (r, g, b) = (
                 span.color.0 as f64 / 255.0,
                 span.color.1 as f64 / 255.0,
@@ -475,7 +503,9 @@ fn apply_attr_set(
     // Apply individual non-font attributes.
     for attr in attrs.attrs() {
         match attr {
-            TextAttribute::Bold | TextAttribute::Italic | TextAttribute::Monospace
+            TextAttribute::Bold
+            | TextAttribute::Italic
+            | TextAttribute::Monospace
             | TextAttribute::FontSize(_) => {
                 // Handled above by build_font.
             }
@@ -558,11 +588,7 @@ fn apply_attr_set(
                 let ns_str = NSString::from_str(url);
                 if let Some(ns_url) = NSURL::URLWithString(&ns_str) {
                     unsafe {
-                        storage.addAttribute_value_range(
-                            NSLinkAttributeName,
-                            &ns_url,
-                            range,
-                        );
+                        storage.addAttribute_value_range(NSLinkAttributeName, &ns_url, range);
                     }
                 }
             }
@@ -593,7 +619,10 @@ fn build_font(attrs: &AttributeSet, base_size: f64) -> Retained<NSFont> {
     // by invisible '# ' / '*' / '**' characters still occupying their advance width.
     // Exception: TaskCheckbox ranges use Hidden for transparency but need to
     // preserve advance width so the checkbox overlay has space.
-    let has_checkbox = attrs.attrs().iter().any(|a| matches!(a, TextAttribute::TaskCheckbox { .. }));
+    let has_checkbox = attrs
+        .attrs()
+        .iter()
+        .any(|a| matches!(a, TextAttribute::TaskCheckbox { .. }));
     if attrs.contains(&TextAttribute::Hidden) && !has_checkbox {
         return unsafe { NSFont::systemFontOfSize_weight(0.001, NSFontWeightRegular) };
     }
@@ -602,8 +631,10 @@ fn build_font(attrs: &AttributeSet, base_size: f64) -> Retained<NSFont> {
     // Scaled down to ~60% so the 6-char marker ("- [ ] ") occupies roughly
     // the same width as it would in the body serif font.
     if has_checkbox {
-        let checkbox_size = base_size * 0.6;
-        return NSFont::monospacedSystemFontOfSize_weight(checkbox_size, unsafe { NSFontWeightRegular });
+        let checkbox_size = base_size * 0.4;
+        return NSFont::monospacedSystemFontOfSize_weight(checkbox_size, unsafe {
+            NSFontWeightRegular
+        });
     }
 
     let size = attrs.font_size().unwrap_or(base_size);
@@ -613,7 +644,13 @@ fn build_font(attrs: &AttributeSet, base_size: f64) -> Retained<NSFont> {
 
     if mono {
         let code_size = size - 2.0;
-        let weight = unsafe { if bold { NSFontWeightBold } else { NSFontWeightRegular } };
+        let weight = unsafe {
+            if bold {
+                NSFontWeightBold
+            } else {
+                NSFontWeightRegular
+            }
+        };
         let base = NSFont::monospacedSystemFontOfSize_weight(code_size, weight);
         if italic {
             let desc = base.fontDescriptor();
@@ -622,8 +659,7 @@ fn build_font(attrs: &AttributeSet, base_size: f64) -> Retained<NSFont> {
                 traits |= NSFontDescriptorSymbolicTraits::TraitBold;
             }
             let italic_desc = desc.fontDescriptorWithSymbolicTraits(traits);
-            return NSFont::fontWithDescriptor_size(&italic_desc, code_size)
-                .unwrap_or(base);
+            return NSFont::fontWithDescriptor_size(&italic_desc, code_size).unwrap_or(base);
         }
         return base;
     }
@@ -647,17 +683,20 @@ fn build_font(attrs: &AttributeSet, base_size: f64) -> Retained<NSFont> {
 /// Falls back to the system font if Georgia is unavailable.
 fn serif_font(size: f64, bold: bool, italic: bool) -> Retained<NSFont> {
     let name = match (bold, italic) {
-        (true,  true)  => "Georgia-BoldItalic",
-        (true,  false) => "Georgia-Bold",
-        (false, true)  => "Georgia-Italic",
+        (true, true) => "Georgia-BoldItalic",
+        (true, false) => "Georgia-Bold",
+        (false, true) => "Georgia-Italic",
         (false, false) => "Georgia",
     };
     let ns_name = NSString::from_str(name);
-    NSFont::fontWithName_size(&ns_name, size)
-        .unwrap_or_else(|| unsafe {
-            let weight = if bold { NSFontWeightBold } else { NSFontWeightRegular };
-            NSFont::systemFontOfSize_weight(size, weight)
-        })
+    NSFont::fontWithName_size(&ns_name, size).unwrap_or_else(|| unsafe {
+        let weight = if bold {
+            NSFontWeightBold
+        } else {
+            NSFontWeightRegular
+        };
+        NSFont::systemFontOfSize_weight(size, weight)
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -672,17 +711,17 @@ fn serif_font(size: f64, bold: bool, italic: bool) -> Retained<NSFont> {
 ///
 /// Must be called after all fonts have been applied to the storage, because
 /// rendered cell widths depend on the font metrics already in place.
-fn equalize_table_columns(
-    storage: &NSTextStorage,
-    text: &str,
-    row_pipes: &[Vec<usize>],
-) {
+fn equalize_table_columns(storage: &NSTextStorage, text: &str, row_pipes: &[Vec<usize>]) {
     if row_pipes.is_empty() {
         return;
     }
 
     // Determine the number of columns (= pipes_per_row - 1).
-    let num_cols = row_pipes.iter().map(|rp| rp.len().saturating_sub(1)).min().unwrap_or(0);
+    let num_cols = row_pipes
+        .iter()
+        .map(|rp| rp.len().saturating_sub(1))
+        .min()
+        .unwrap_or(0);
     if num_cols == 0 {
         return;
     }
@@ -706,7 +745,10 @@ fn equalize_table_columns(
                 row_widths.push(0.0);
                 continue;
             }
-            let range = NSRange { location: start_u16, length: end_u16 - start_u16 };
+            let range = NSRange {
+                location: start_u16,
+                length: end_u16 - start_u16,
+            };
             let width: f64 = unsafe {
                 let substr = storage.attributedSubstringFromRange(range);
                 let size: NSSize = msg_send![&*substr, size];
@@ -795,8 +837,8 @@ struct ParaStyleConfig {
 fn build_para_style(cfg: ParaStyleConfig) -> Retained<NSMutableParagraphStyle> {
     let style = NSMutableParagraphStyle::new();
     style.setLineSpacing(cfg.line_spacing);
-    style.setParagraphSpacingBefore(cfg.spacing_before);  // always set, 0.0 is valid
-    style.setParagraphSpacing(cfg.spacing_after);         // always set, 0.0 is valid
+    style.setParagraphSpacingBefore(cfg.spacing_before); // always set, 0.0 is valid
+    style.setParagraphSpacing(cfg.spacing_after); // always set, 0.0 is valid
     if cfg.indent != 0.0 {
         style.setHeadIndent(cfg.indent);
         style.setFirstLineHeadIndent(cfg.indent);
@@ -813,7 +855,6 @@ fn make_color((r, g, b): (f64, f64, f64)) -> Retained<NSColor> {
     NSColor::colorWithRed_green_blue_alpha(r, g, b, 1.0)
 }
 
-
 /// Convert a UTF-8 byte range to an `NSRange` (UTF-16 code-unit offsets).
 ///
 /// Returns `None` if the range is empty or would exceed `text_len_u16`,
@@ -829,7 +870,10 @@ fn mk_utf16_range(
     if start_u16 >= end_u16 || end_u16 > text_len_u16 {
         return None;
     }
-    Some(NSRange { location: start_u16, length: end_u16 - start_u16 })
+    Some(NSRange {
+        location: start_u16,
+        length: end_u16 - start_u16,
+    })
 }
 
 /// Convert a UTF-8 byte offset in `text` to a UTF-16 code-unit offset.

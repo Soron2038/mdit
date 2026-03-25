@@ -824,11 +824,10 @@ impl MditTextView {
             // Use the glyph's baseline offset (y component of locationForGlyphAtIndex)
             // to position the checkbox consistently, regardless of line fragment height
             // (which varies for the last line without a trailing newline).
-            let glyph_loc: NSPoint = unsafe {
-                msg_send![&*layout_manager, locationForGlyphAtIndex: glyph_idx]
-            };
+            let glyph_loc: NSPoint =
+                unsafe { msg_send![&*layout_manager, locationForGlyphAtIndex: glyph_idx] };
             let baseline_y = frag_rect.origin.y + tc_origin.y + glyph_loc.y;
-            let y = baseline_y - box_size;
+            let y = baseline_y - box_size + 1.0;
 
             let checkbox_rect = NSRect::new(NSPoint::new(x, y), NSSize::new(box_size, box_size));
 
