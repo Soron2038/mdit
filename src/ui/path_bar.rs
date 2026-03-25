@@ -9,6 +9,7 @@ use objc2_app_kit::{NSColor, NSFont, NSTextField, NSView};
 use objc2_foundation::{MainThreadMarker, NSPoint, NSRect, NSSize, NSString};
 
 use crate::ui::tab_bar::path_label;
+use super::{NS_TEXT_ALIGNMENT_CENTER, NS_TEXT_ALIGNMENT_RIGHT};
 
 pub const HEIGHT: f64 = 22.0;
 const LEFT_PAD: f64 = 8.0;
@@ -66,8 +67,8 @@ impl PathBar {
         word_field.setFont(Some(&font));
         word_field.setTextColor(Some(&NSColor::tertiaryLabelColor()));
         word_field.setStringValue(&NSString::from_str(""));
-        // Center-align the word count text (NSTextAlignmentCenter = 2).
-        unsafe { let _: () = msg_send![&*word_field, setAlignment: 2usize]; }
+        // Center-align the word count text.
+        unsafe { let _: () = msg_send![&*word_field, setAlignment: NS_TEXT_ALIGNMENT_RIGHT]; }
         unsafe { let _: () = msg_send![&*word_field, setHidden: true]; }
 
         // File info labels (right side): "UTF-8   LF   Markdown"
@@ -83,8 +84,8 @@ impl PathBar {
         info_field.setFont(Some(&font));
         info_field.setTextColor(Some(&NSColor::tertiaryLabelColor()));
         info_field.setStringValue(&NSString::from_str(""));
-        // Right-align the info text (NSTextAlignmentRight = 1).
-        unsafe { let _: () = msg_send![&*info_field, setAlignment: 1usize]; }
+        // Right-align the info text.
+        unsafe { let _: () = msg_send![&*info_field, setAlignment: NS_TEXT_ALIGNMENT_CENTER]; }
 
         container.addSubview(&field);
         container.addSubview(&word_field);

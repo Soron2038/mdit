@@ -1612,8 +1612,8 @@ fn load_theme_pref() -> ThemePreference {
     let stored = NSUserDefaults::standardUserDefaults().stringForKey(&key);
     stored
         .as_deref()
-        .map(|s| ThemePreference::from_str(&s.to_string()))
-        .unwrap_or(ThemePreference::System)
+        .map(|s| s.to_string().parse::<ThemePreference>().unwrap_or_default())
+        .unwrap_or_default()
 }
 
 /// Persist the user's font size to `NSUserDefaults`.

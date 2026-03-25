@@ -12,6 +12,7 @@ use objc2::{msg_send, MainThreadOnly};
 use objc2_app_kit::{
     NSBezelStyle, NSButton, NSButtonType, NSColor, NSControl, NSFont, NSTextField, NSView,
 };
+use super::NS_TEXT_ALIGNMENT_CENTER;
 use objc2_foundation::{MainThreadMarker, NSPoint, NSRect, NSSize, NSString};
 
 // ---------------------------------------------------------------------------
@@ -179,8 +180,8 @@ impl FindBar {
         // Orange text color
         let orange = NSColor::colorWithRed_green_blue_alpha(0.784, 0.475, 0.255, 1.0);
         count_label.setTextColor(Some(&orange));
-        // Right-align: NSTextAlignmentRight = 1
-        unsafe { let _: () = msg_send![&*count_label, setAlignment: 1usize]; }
+        // Right-align.
+        unsafe { let _: () = msg_send![&*count_label, setAlignment: NS_TEXT_ALIGNMENT_CENTER]; }
         count_label.setStringValue(&NSString::from_str(""));
         container.addSubview(&count_label);
 

@@ -13,6 +13,7 @@ use objc2_foundation::{
 };
 
 use crate::editor::view_mode::ViewMode;
+use super::NS_TEXT_ALIGNMENT_CENTER;
 
 // ---------------------------------------------------------------------------
 // PassthroughView — NSView subclass that ignores all mouse events
@@ -141,7 +142,7 @@ impl WelcomeOverlay {
         let mut y = (h + total) / 2.0;
 
         let subviews = self.container.subviews();
-        let count = subviews.count() as usize;
+        let count = subviews.count();
 
         // Helper to get a subview by index.
         let get = |i: usize| -> Option<Retained<NSView>> {
@@ -209,7 +210,7 @@ impl WelcomeOverlay {
             field.setFont(Some(&NSFont::systemFontOfSize(size)));
         }
         field.setStringValue(&NSString::from_str(text));
-        unsafe { let _: () = msg_send![&*field, setAlignment: 1_isize]; } // NSTextAlignmentCenter
+        unsafe { let _: () = msg_send![&*field, setAlignment: NS_TEXT_ALIGNMENT_CENTER]; }
         field
     }
 
@@ -229,7 +230,7 @@ impl WelcomeOverlay {
         field.setDrawsBackground(false);
         field.setFont(Some(&NSFont::monospacedSystemFontOfSize_weight(size, 0.0)));
         field.setStringValue(&NSString::from_str(text));
-        unsafe { let _: () = msg_send![&*field, setAlignment: 1_isize]; } // NSTextAlignmentCenter
+        unsafe { let _: () = msg_send![&*field, setAlignment: NS_TEXT_ALIGNMENT_CENTER]; }
         field
     }
 }

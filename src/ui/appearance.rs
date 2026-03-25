@@ -121,15 +121,6 @@ impl ThemePreference {
         }
     }
 
-    /// Parse a stored preference string.  Anything unknown falls back to `System`.
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "light" => Self::Light,
-            "dark"  => Self::Dark,
-            _       => Self::System,
-        }
-    }
-
     /// Resolve this preference to a concrete `ColorScheme`.
     ///
     /// `system_is_dark` is the result of querying `NSApplication.effectiveAppearance` — pass
@@ -140,6 +131,17 @@ impl ThemePreference {
             Self::Dark   => ColorScheme::dark(),
             Self::System => if system_is_dark { ColorScheme::dark() } else { ColorScheme::light() },
         }
+    }
+}
+
+impl std::str::FromStr for ThemePreference {
+    type Err = std::convert::Infallible;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(match s {
+            "light" => Self::Light,
+            "dark"  => Self::Dark,
+            _       => Self::System,
+        })
     }
 }
 
@@ -210,15 +212,15 @@ mod tests {
     // ThemePreference tests
     #[test]
     fn theme_preference_roundtrip() {
-        assert_eq!(ThemePreference::from_str(ThemePreference::Light.as_str()), ThemePreference::Light);
-        assert_eq!(ThemePreference::from_str(ThemePreference::Dark.as_str()), ThemePreference::Dark);
-        assert_eq!(ThemePreference::from_str(ThemePreference::System.as_str()), ThemePreference::System);
+        assert_eq!(ThemePreference::Light.as_str().parse::<ThemePreference>().unwrap(), ThemePreference::Light);
+        assert_eq!(ThemePreference::Dark.as_str().parse::<ThemePreference>().unwrap(), ThemePreference::Dark);
+        assert_eq!(ThemePreference::System.as_str().parse::<ThemePreference>().unwrap(), ThemePreference::System);
     }
 
     #[test]
     fn theme_preference_unknown_falls_back_to_system() {
-        assert_eq!(ThemePreference::from_str("unknown"), ThemePreference::System);
-        assert_eq!(ThemePreference::from_str(""), ThemePreference::System);
+        assert_eq!("unknown".parse::<ThemePreference>().unwrap(), ThemePreference::System);
+        assert_eq!("".parse::<ThemePreference>().unwrap(), ThemePreference::System);
     }
 
     #[test]
