@@ -100,6 +100,17 @@ pub struct TableGrid {
     pub bounds: (usize, usize),
 }
 
+/// Position info for a task-list checkbox, used by MditTextView for drawing and click handling.
+#[derive(Debug, Clone)]
+pub struct CheckboxInfo {
+    /// UTF-16 code-unit offset of the `[` character.
+    pub utf16_pos: usize,
+    /// Whether the checkbox is checked.
+    pub checked: bool,
+    /// Byte offset of the `[` in the source text — used by click handler to toggle.
+    pub byte_offset: usize,
+}
+
 /// Positions of elements that need custom drawing in the text view.
 pub struct LayoutPositions {
     /// UTF-16 offsets of H1/H2 heading paragraph starts (separator lines).
@@ -108,6 +119,8 @@ pub struct LayoutPositions {
     pub thematic_breaks: Vec<usize>,
     /// Per-table grid data for drawing grid lines and borders.
     pub table_grids: Vec<TableGrid>,
+    /// Checkbox positions for task list items.
+    pub checkboxes: Vec<CheckboxInfo>,
 }
 
 // ---------------------------------------------------------------------------
@@ -137,6 +150,7 @@ pub fn apply_attribute_runs(
             heading_seps: Vec::new(),
             thematic_breaks: Vec::new(),
             table_grids: Vec::new(),
+            checkboxes: Vec::new(),
         };
     }
 
@@ -146,11 +160,11 @@ pub fn apply_attribute_runs(
     let para_style = build_para_style(ParaStyleConfig { line_spacing: 9.6, ..Default::default() });
 
     reset_to_body_style(storage, &body_font, &text_color, &para_style, full_range);
-    let (heading_seps, thematic_breaks) = apply_runs(storage, text, runs, text_len_u16, scheme, base_size);
+    let (heading_seps, thematic_breaks, checkboxes) = apply_runs(storage, text, runs, text_len_u16, scheme, base_size);
     let table_grids = process_tables(storage, text, table_infos, text_len_u16);
     apply_code_blocks(storage, code_block_infos, text_len_u16, scheme);
 
-    LayoutPositions { heading_seps, thematic_breaks, table_grids }
+    LayoutPositions { heading_seps, thematic_breaks, table_grids, checkboxes }
 }
 
 /// Reset the entire storage to the default body style.
@@ -192,8 +206,8 @@ fn reset_to_body_style(
 
 /// Apply per-run attribute overrides and collect positions of decorative elements.
 ///
-/// Returns `(heading_seps, thematic_breaks)` — UTF-16 offsets used by
-/// `MditTextView` to draw separator lines and horizontal rules.
+/// Returns `(heading_seps, thematic_breaks, checkboxes)` — UTF-16 offsets used by
+/// `MditTextView` to draw separator lines, horizontal rules, and task checkboxes.
 fn apply_runs(
     storage: &NSTextStorage,
     text: &str,
@@ -201,9 +215,10 @@ fn apply_runs(
     text_len_u16: usize,
     scheme: &ColorScheme,
     base_size: f64,
-) -> (Vec<usize>, Vec<usize>) {
+) -> (Vec<usize>, Vec<usize>, Vec<CheckboxInfo>) {
     let mut heading_seps: Vec<usize> = Vec::new();
     let mut thematic_breaks: Vec<usize> = Vec::new();
+    let mut checkboxes: Vec<CheckboxInfo> = Vec::new();
     for run in runs {
         let Some(range) = mk_utf16_range(text, run.range.0, run.range.1, text_len_u16) else {
             continue;
@@ -233,8 +248,18 @@ fn apply_runs(
         if run.attrs.contains(&TextAttribute::ThematicBreak) {
             thematic_breaks.push(range.location);
         }
+
+        for attr in run.attrs.attrs() {
+            if let TextAttribute::TaskCheckbox { checked, byte_offset } = attr {
+                checkboxes.push(CheckboxInfo {
+                    utf16_pos: range.location,
+                    checked: *checked,
+                    byte_offset: *byte_offset,
+                });
+            }
+        }
     }
-    (heading_seps, thematic_breaks)
+    (heading_seps, thematic_breaks, checkboxes)
 }
 
 /// Compute per-table grid data and apply table-specific text attributes.

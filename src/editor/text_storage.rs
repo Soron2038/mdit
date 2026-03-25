@@ -7,7 +7,7 @@ use objc2_foundation::{
     MainThreadMarker, NSInteger, NSObject, NSObjectProtocol, NSRange,
 };
 
-use crate::editor::apply::{apply_attribute_runs, collect_code_block_infos, CodeBlockInfo, TableGrid};
+use crate::editor::apply::{apply_attribute_runs, collect_code_block_infos, CheckboxInfo, CodeBlockInfo, TableGrid};
 use crate::editor::editor_renderer::compute_editor_runs;
 use crate::editor::renderer::compute_attribute_runs;
 use crate::editor::view_mode::ViewMode;
@@ -38,6 +38,8 @@ pub struct MditEditorDelegateIvars {
     code_block_infos: RefCell<Vec<CodeBlockInfo>>,
     /// Per-table grid data for drawing borders and grid lines.
     table_grids: RefCell<Vec<TableGrid>>,
+    /// Checkbox positions for task list items, updated after every re-parse.
+    checkbox_infos: RefCell<Vec<CheckboxInfo>>,
     /// Current view mode: Viewer uses full rendering, Editor uses syntax highlighting.
     mode: Cell<ViewMode>,
     /// Base font size in points. Set by AppDelegate; defaults to 16.0.
@@ -102,6 +104,7 @@ define_class!(
                 self.ivars().thematic_break_positions.borrow_mut().clear();
                 self.ivars().table_grids.borrow_mut().clear();
                 self.ivars().code_block_infos.borrow_mut().clear();
+                self.ivars().checkbox_infos.borrow_mut().clear();
             } else {
                 // ── Viewer mode: full rendering pipeline ──────────────────
                 let cursor_pos = self.ivars().cursor_pos.get();
@@ -121,6 +124,7 @@ define_class!(
                 *self.ivars().thematic_break_positions.borrow_mut() = positions.thematic_breaks;
                 *self.ivars().table_grids.borrow_mut() = positions.table_grids;
                 *self.ivars().code_block_infos.borrow_mut() = infos;
+                *self.ivars().checkbox_infos.borrow_mut() = positions.checkboxes;
             }
         }
     }
@@ -142,6 +146,7 @@ impl MditEditorDelegate {
             thematic_break_positions: RefCell::new(Vec::new()),
             code_block_infos: RefCell::new(Vec::new()),
             table_grids: RefCell::new(Vec::new()),
+            checkbox_infos: RefCell::new(Vec::new()),
             mode: Cell::new(ViewMode::Viewer),
             base_size: Cell::new(16.0),
         });
@@ -204,6 +209,7 @@ impl MditEditorDelegate {
             self.ivars().thematic_break_positions.borrow_mut().clear();
             self.ivars().table_grids.borrow_mut().clear();
             self.ivars().code_block_infos.borrow_mut().clear();
+            self.ivars().checkbox_infos.borrow_mut().clear();
         } else {
             let cursor_pos = self.ivars().cursor_pos.get();
             let output = {
@@ -222,6 +228,7 @@ impl MditEditorDelegate {
             *self.ivars().thematic_break_positions.borrow_mut() = positions.thematic_breaks;
             *self.ivars().table_grids.borrow_mut() = positions.table_grids;
             *self.ivars().code_block_infos.borrow_mut() = infos;
+            *self.ivars().checkbox_infos.borrow_mut() = positions.checkboxes;
         }
     }
 
@@ -246,6 +253,11 @@ impl MditEditorDelegate {
     /// Returns per-table grid data for drawing borders and grid lines.
     pub fn table_grids(&self) -> Vec<TableGrid> {
         self.ivars().table_grids.borrow().clone()
+    }
+
+    /// Returns checkbox info for all task list items in the document.
+    pub fn checkbox_infos(&self) -> Vec<CheckboxInfo> {
+        self.ivars().checkbox_infos.borrow().clone()
     }
 
     /// Get the current view mode.
