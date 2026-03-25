@@ -16,7 +16,7 @@ pub(super) enum Direction {
 }
 
 /// Owns the find/replace state: match list, current index, bar height.
-pub(super) struct FindCoordinator {
+pub(crate) struct FindCoordinator {
     matches: RefCell<Vec<NSRange>>,
     current: Cell<usize>,
     bar_height: Cell<f64>,

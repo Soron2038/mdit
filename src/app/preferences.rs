@@ -11,7 +11,7 @@ pub(super) const MIN_FONT_SIZE: f64 = 12.0;
 pub(super) const MAX_FONT_SIZE: f64 = 24.0;
 
 /// Owns the user's persisted theme and font size preferences.
-pub(super) struct Preferences {
+pub(crate) struct Preferences {
     theme_pref: Cell<ThemePreference>,
     body_font_size: Cell<f64>,
 }
