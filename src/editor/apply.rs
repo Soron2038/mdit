@@ -591,7 +591,10 @@ fn build_font(attrs: &AttributeSet, base_size: f64) -> Retained<NSFont> {
     // Hidden characters (syntax markers) must not take up layout space.
     // Setting the font to near-zero eliminates the visual indentation caused
     // by invisible '# ' / '*' / '**' characters still occupying their advance width.
-    if attrs.contains(&TextAttribute::Hidden) {
+    // Exception: TaskCheckbox ranges use Hidden for transparency but need to
+    // preserve advance width so the checkbox overlay has space.
+    let has_checkbox = attrs.attrs().iter().any(|a| matches!(a, TextAttribute::TaskCheckbox { .. }));
+    if attrs.contains(&TextAttribute::Hidden) && !has_checkbox {
         return unsafe { NSFont::systemFontOfSize_weight(0.001, NSFontWeightRegular) };
     }
 
