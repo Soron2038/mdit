@@ -766,11 +766,11 @@ impl MditTextView {
             let Some(frag_rect) = frag_rect_for_glyph(&layout_manager, glyph_idx) else { continue };
 
             // Position checkbox aligned with text indent, bottom-aligned with text.
-            let x = frag_rect.origin.x + tc_origin.x + 5.0;
-            // Bottom-align with text: place checkbox so its bottom edge sits at
-            // the text baseline area (roughly 70% down the line fragment).
+            let x = frag_rect.origin.x + tc_origin.x + 3.0;
+            // Bottom-align with text baseline. The text occupies roughly the
+            // upper 55% of the line fragment (rest is line spacing).
             let y = frag_rect.origin.y + tc_origin.y
-                + frag_rect.size.height * 0.7 - box_size;
+                + frag_rect.size.height * 0.55 - box_size;
 
             let checkbox_rect = NSRect::new(
                 NSPoint::new(x, y),
