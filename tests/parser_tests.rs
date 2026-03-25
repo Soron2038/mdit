@@ -103,3 +103,26 @@ fn parses_table_cell() {
         "expected a TableCell node"
     );
 }
+
+#[test]
+fn parses_underline() {
+    let nodes = parse("__underlined__");
+    assert!(
+        flatten(&nodes).iter().any(|n| n.kind == NodeKind::Underline),
+        "expected Underline node"
+    );
+}
+
+#[test]
+fn parses_task_list() {
+    let nodes = parse("- [ ] unchecked\n- [x] checked");
+    let all = flatten(&nodes);
+    assert!(
+        all.iter().any(|n| matches!(n.kind, NodeKind::TaskItem { checked: false })),
+        "expected unchecked TaskItem node"
+    );
+    assert!(
+        all.iter().any(|n| matches!(n.kind, NodeKind::TaskItem { checked: true })),
+        "expected checked TaskItem node"
+    );
+}

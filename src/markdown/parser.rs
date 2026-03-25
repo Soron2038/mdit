@@ -20,12 +20,14 @@ pub enum NodeKind {
     TableCell,
     Footnote,
     Strikethrough,
+    Underline,
     Highlight,
     Subscript,
     Superscript,
     Image { url: String },
     List,
     Item,
+    TaskItem { checked: bool },
     BlockQuote,
     ThematicBreak,
     Paragraph,
@@ -54,6 +56,8 @@ fn make_options() -> Options<'static> {
     opts.extension.highlight = true;
     opts.extension.subscript = true;
     opts.extension.superscript = true;
+    opts.extension.underline = true;
+    opts.extension.tasklist = true;
     opts
 }
 
@@ -137,11 +141,13 @@ fn node_to_span<'a>(
         NodeValue::TableCell => NodeKind::TableCell,
         NodeValue::FootnoteDefinition(_) | NodeValue::FootnoteReference(_) => NodeKind::Footnote,
         NodeValue::Strikethrough => NodeKind::Strikethrough,
+        NodeValue::Underline => NodeKind::Underline,
         NodeValue::Highlight => NodeKind::Highlight,
         NodeValue::Subscript => NodeKind::Subscript,
         NodeValue::Superscript => NodeKind::Superscript,
         NodeValue::List(_) => NodeKind::List,
         NodeValue::Item(_) => NodeKind::Item,
+        NodeValue::TaskItem(ti) => NodeKind::TaskItem { checked: ti.symbol.is_some() },
         NodeValue::BlockQuote => NodeKind::BlockQuote,
         NodeValue::ThematicBreak => NodeKind::ThematicBreak,
         NodeValue::Paragraph => NodeKind::Paragraph,

@@ -168,6 +168,11 @@ fn collect_runs(
                 &[TextAttribute::Strikethrough, TextAttribute::ForegroundColor("strikethrough")],
                 runs, table_infos);
         }
+        NodeKind::Underline => {
+            collect_symmetric_marker(text, span, cursor_pos, base_size, inherited, &syn, 2,
+                &[TextAttribute::Underline, TextAttribute::ForegroundColor("underline")],
+                runs, table_infos);
+        }
         NodeKind::Highlight => {
             collect_symmetric_marker(text, span, cursor_pos, base_size, inherited, &syn, 2,
                 &[TextAttribute::BackgroundColor("highlight_bg")], runs, table_infos);
@@ -214,7 +219,7 @@ fn collect_runs(
                 collect_runs(text, child, cursor_pos, base_size, inherited, runs, table_infos);
             }
         }
-        NodeKind::Item => {
+        NodeKind::Item | NodeKind::TaskItem { .. } => {
             collect_item(text, span, cursor_pos, base_size, inherited, runs, table_infos);
         }
         NodeKind::Table => {
