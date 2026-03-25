@@ -10,9 +10,9 @@
     <key>CFBundleIdentifier</key>
     <string>dev.mdit.editor</string>
     <key>CFBundleVersion</key>
-    <string>0.1.0</string>
+    <string>1.0.0</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.1.0</string>
+    <string>1.0.0</string>
     <key>CFBundleExecutable</key>
     <string>mdit</string>
     <key>CFBundlePackageType</key>
