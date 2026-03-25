@@ -8,7 +8,9 @@ use objc2_app_kit::{
     NSFontWeightRegular, NSForegroundColorAttributeName, NSImage, NSPasteboard,
     NSPasteboardTypeString, NSRectFill, NSScrollView, NSTextView,
 };
-use objc2_foundation::{MainThreadMarker, NSObjectProtocol, NSPoint, NSRange, NSRect, NSSize, NSString};
+use objc2_foundation::{
+    MainThreadMarker, NSObjectProtocol, NSPoint, NSRange, NSRect, NSSize, NSString,
+};
 
 use super::text_storage::MditEditorDelegate;
 use crate::editor::apply::TableGrid;
@@ -17,7 +19,7 @@ use crate::ui::appearance::ColorScheme;
 
 // Visual constants for code-block overlay drawing.
 const CODE_BLOCK_HEADER_H: f64 = 22.0; // height of the language title row
-const CODE_BLOCK_STRIPE_W: f64 = 3.0;  // width of the left accent stripe
+const CODE_BLOCK_STRIPE_W: f64 = 3.0; // width of the left accent stripe
 
 // ---------------------------------------------------------------------------
 // MditTextView — NSTextView subclass that draws H1/H2 separator lines
@@ -57,9 +59,12 @@ pub struct MditTextViewIvars {
 /// this value exactly. Previous call sites used `== usize::MAX` (incorrect —
 /// AppKit's NSNotFound is not `usize::MAX`); this helper fixes that silently.
 fn glyph_for_char(lm: &objc2_app_kit::NSLayoutManager, char_idx: usize) -> Option<usize> {
-    let idx: usize =
-        unsafe { msg_send![lm, glyphIndexForCharacterAtIndex: char_idx] };
-    if idx >= usize::MAX / 2 { None } else { Some(idx) }
+    let idx: usize = unsafe { msg_send![lm, glyphIndexForCharacterAtIndex: char_idx] };
+    if idx >= usize::MAX / 2 {
+        None
+    } else {
+        Some(idx)
+    }
 }
 
 /// Look up the line fragment rect for a glyph index.
@@ -73,19 +78,29 @@ fn frag_rect_for_glyph(lm: &objc2_app_kit::NSLayoutManager, glyph_idx: usize) ->
             lineFragmentRectForGlyphAtIndex: glyph_idx,
             effectiveRange: null_ptr]
     };
-    if rect.size.height == 0.0 { None } else { Some(rect) }
+    if rect.size.height == 0.0 {
+        None
+    } else {
+        Some(rect)
+    }
 }
 
 /// Fill a 1-point horizontal rule at (x, y) with the given width.
 /// The rect is offset by −0.5 on y to centre on the pixel boundary.
 fn fill_hline(x: f64, y: f64, width: f64) {
-    NSRectFill(NSRect::new(NSPoint::new(x, y - 0.5), NSSize::new(width, 1.0)));
+    NSRectFill(NSRect::new(
+        NSPoint::new(x, y - 0.5),
+        NSSize::new(width, 1.0),
+    ));
 }
 
 /// Fill a 1-point vertical rule at (x, y) with the given height.
 /// The rect is offset by −0.5 on x to centre on the pixel boundary.
 fn fill_vline(x: f64, y: f64, height: f64) {
-    NSRectFill(NSRect::new(NSPoint::new(x - 0.5, y), NSSize::new(1.0, height)));
+    NSRectFill(NSRect::new(
+        NSPoint::new(x - 0.5, y),
+        NSSize::new(1.0, height),
+    ));
 }
 
 // ---------------------------------------------------------------------------
@@ -263,7 +278,10 @@ impl MditTextView {
     /// is unavailable (layout not yet set up).
     fn layout_context(
         &self,
-    ) -> Option<(Retained<objc2_app_kit::NSLayoutManager>, Retained<objc2_app_kit::NSTextContainer>)> {
+    ) -> Option<(
+        Retained<objc2_app_kit::NSLayoutManager>,
+        Retained<objc2_app_kit::NSTextContainer>,
+    )> {
         let lm = unsafe { self.layoutManager() }?;
         let tc = unsafe { self.textContainer() }?;
         Some((lm, tc))
@@ -302,8 +320,12 @@ impl MditTextView {
         sep_color.setFill();
 
         for &utf16_pos in &positions {
-            let Some(glyph_idx) = glyph_for_char(&layout_manager, utf16_pos) else { continue };
-            let Some(frag_rect) = frag_rect_for_glyph(&layout_manager, glyph_idx) else { continue };
+            let Some(glyph_idx) = glyph_for_char(&layout_manager, utf16_pos) else {
+                continue;
+            };
+            let Some(frag_rect) = frag_rect_for_glyph(&layout_manager, glyph_idx) else {
+                continue;
+            };
 
             // Position the line in the paragraphSpacingBefore space (20pt added
             // in apply.rs), centred at spacing_before / 2 = 10pt above the
@@ -342,8 +364,12 @@ impl MditTextView {
         sep_color.setFill();
 
         for &utf16_pos in &positions {
-            let Some(glyph_idx) = glyph_for_char(&layout_manager, utf16_pos) else { continue };
-            let Some(frag_rect) = frag_rect_for_glyph(&layout_manager, glyph_idx) else { continue };
+            let Some(glyph_idx) = glyph_for_char(&layout_manager, utf16_pos) else {
+                continue;
+            };
+            let Some(frag_rect) = frag_rect_for_glyph(&layout_manager, glyph_idx) else {
+                continue;
+            };
 
             // Centre the line vertically in the line fragment.
             let y = frag_rect.origin.y + tc_origin.y + frag_rect.size.height / 2.0;
@@ -381,7 +407,8 @@ impl MditTextView {
             let _: () = unsafe { msg_send![ctx_cls, saveGraphicsState] };
             let clip_path = NSBezierPath::bezierPath();
             for rect in &rects {
-                let rounded = NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(*rect, 8.0, 8.0);
+                let rounded =
+                    NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(*rect, 8.0, 8.0);
                 clip_path.appendBezierPath(&rounded);
             }
             clip_path.addClip();
@@ -396,8 +423,12 @@ impl MditTextView {
                 SeparatorAxis::Vertical => &grid.column_seps,
             };
             for &utf16_pos in positions {
-                let Some(glyph_idx) = glyph_for_char(&layout_manager, utf16_pos) else { continue };
-                let Some(frag_rect) = frag_rect_for_glyph(&layout_manager, glyph_idx) else { continue };
+                let Some(glyph_idx) = glyph_for_char(&layout_manager, utf16_pos) else {
+                    continue;
+                };
+                let Some(frag_rect) = frag_rect_for_glyph(&layout_manager, glyph_idx) else {
+                    continue;
+                };
                 match axis {
                     SeparatorAxis::Horizontal => {
                         let y = frag_rect.origin.y + tc_origin.y;
@@ -425,10 +456,7 @@ impl MditTextView {
     /// Each rect spans the full container width and is padded 8pt above the first
     /// line fragment and 8pt below the last. Used for background fills, border strokes,
     /// and clip-path setup in separator drawing.
-    fn table_rects_from_grids(
-        &self,
-        grids: &[TableGrid],
-    ) -> Vec<NSRect> {
+    fn table_rects_from_grids(&self, grids: &[TableGrid]) -> Vec<NSRect> {
         if grids.is_empty() {
             return Vec::new();
         }
@@ -447,12 +475,20 @@ impl MditTextView {
             if start_u16 >= end_u16 {
                 continue;
             }
-            let Some(first_glyph) = glyph_for_char(&layout_manager, start_u16) else { continue };
+            let Some(first_glyph) = glyph_for_char(&layout_manager, start_u16) else {
+                continue;
+            };
             let last_char = end_u16.saturating_sub(1);
-            let Some(last_glyph) = glyph_for_char(&layout_manager, last_char) else { continue };
+            let Some(last_glyph) = glyph_for_char(&layout_manager, last_char) else {
+                continue;
+            };
 
-            let Some(top_frag) = frag_rect_for_glyph(&layout_manager, first_glyph) else { continue };
-            let Some(bot_frag) = frag_rect_for_glyph(&layout_manager, last_glyph) else { continue };
+            let Some(top_frag) = frag_rect_for_glyph(&layout_manager, first_glyph) else {
+                continue;
+            };
+            let Some(bot_frag) = frag_rect_for_glyph(&layout_manager, last_glyph) else {
+                continue;
+            };
 
             let block_y = top_frag.origin.y + tc_origin.y - 8.0;
             let block_bottom = bot_frag.origin.y + bot_frag.size.height + tc_origin.y + 8.0;
@@ -555,13 +591,21 @@ impl MditTextView {
             // ── Map UTF-16 offsets to glyph indices ──────────────────────────
             // NSNotFound = NSIntegerMax = 0x7FFFFFFFFFFFFFFF, NOT usize::MAX.
             // Use usize::MAX/2 as sentinel to catch both values safely.
-            let Some(first_glyph) = glyph_for_char(&layout_manager, info.start_utf16) else { continue };
+            let Some(first_glyph) = glyph_for_char(&layout_manager, info.start_utf16) else {
+                continue;
+            };
             let last_char = info.end_utf16.saturating_sub(1);
-            let Some(last_glyph) = glyph_for_char(&layout_manager, last_char) else { continue };
+            let Some(last_glyph) = glyph_for_char(&layout_manager, last_char) else {
+                continue;
+            };
 
             // ── Get line fragment rects ───────────────────────────────────────
-            let Some(top_frag) = frag_rect_for_glyph(&layout_manager, first_glyph) else { continue };
-            let Some(bot_frag) = frag_rect_for_glyph(&layout_manager, last_glyph) else { continue };
+            let Some(top_frag) = frag_rect_for_glyph(&layout_manager, first_glyph) else {
+                continue;
+            };
+            let Some(bot_frag) = frag_rect_for_glyph(&layout_manager, last_glyph) else {
+                continue;
+            };
 
             // ── Build full-width block rect (8pt vertical padding) ────────────
             let block_y = top_frag.origin.y + tc_origin.y - 8.0;
@@ -653,7 +697,11 @@ impl MditTextView {
             NSRectFill(sep_rect);
             self.draw_code_block_language_tag(block_rect, &language);
             self.draw_code_block_copy_icon(index, icon_rect);
-            self.ivars().overlay.borrow_mut().button_rects.push((icon_rect, code_text));
+            self.ivars()
+                .overlay
+                .borrow_mut()
+                .button_rects
+                .push((icon_rect, code_text));
         }
     }
 
@@ -677,8 +725,7 @@ impl MditTextView {
             let cls = objc2::runtime::AnyClass::get(c"NSMutableAttributedString")
                 .expect("NSMutableAttributedString class not found");
             let obj: *mut objc2::runtime::AnyObject = msg_send![cls, alloc];
-            let obj: *mut objc2::runtime::AnyObject =
-                msg_send![obj, initWithString: &*ns_lang];
+            let obj: *mut objc2::runtime::AnyObject = msg_send![obj, initWithString: &*ns_lang];
             Retained::retain(obj).expect("initWithString returned nil")
         };
 
@@ -721,10 +768,13 @@ impl MditTextView {
             let overlay = self.ivars().overlay.borrow();
             matches!(&overlay.feedback, Some((i, t)) if *i == block_index && t.elapsed().as_secs_f64() < 1.5)
         };
-        let icon_name = if show_checkmark { "checkmark" } else { "doc.on.doc" };
+        let icon_name = if show_checkmark {
+            "checkmark"
+        } else {
+            "doc.on.doc"
+        };
         let name = NSString::from_str(icon_name);
-        if let Some(icon) =
-            NSImage::imageWithSystemSymbolName_accessibilityDescription(&name, None)
+        if let Some(icon) = NSImage::imageWithSystemSymbolName_accessibilityDescription(&name, None)
         {
             if show_checkmark {
                 NSColor::systemGreenColor().set();
@@ -762,27 +812,34 @@ impl MditTextView {
         let box_size = (base_size * 0.85).round();
 
         for info in &infos {
-            let Some(glyph_idx) = glyph_for_char(&layout_manager, info.utf16_pos) else { continue };
-            let Some(frag_rect) = frag_rect_for_glyph(&layout_manager, glyph_idx) else { continue };
+            let Some(glyph_idx) = glyph_for_char(&layout_manager, info.utf16_pos) else {
+                continue;
+            };
+            let Some(frag_rect) = frag_rect_for_glyph(&layout_manager, glyph_idx) else {
+                continue;
+            };
 
             // Position checkbox aligned with text indent, bottom-aligned with text.
-            let x = frag_rect.origin.x + tc_origin.x + 3.0;
-            // Bottom-align with text baseline. The text occupies roughly the
-            // upper 55% of the line fragment (rest is line spacing).
-            let y = frag_rect.origin.y + tc_origin.y
-                + frag_rect.size.height * 0.55 - box_size;
+            let x = frag_rect.origin.x + tc_origin.x + 6.0;
+            // Use the glyph's baseline offset (y component of locationForGlyphAtIndex)
+            // to position the checkbox consistently, regardless of line fragment height
+            // (which varies for the last line without a trailing newline).
+            let glyph_loc: NSPoint = unsafe {
+                msg_send![&*layout_manager, locationForGlyphAtIndex: glyph_idx]
+            };
+            let baseline_y = frag_rect.origin.y + tc_origin.y + glyph_loc.y;
+            let y = baseline_y - box_size;
 
-            let checkbox_rect = NSRect::new(
-                NSPoint::new(x, y),
-                NSSize::new(box_size, box_size),
-            );
+            let checkbox_rect = NSRect::new(NSPoint::new(x, y), NSSize::new(box_size, box_size));
 
             if info.checked {
                 // Filled rounded rect with accent color
                 let (ar, ag, ab) = scheme.accent;
                 let fill_color = NSColor::colorWithRed_green_blue_alpha(ar, ag, ab, 1.0);
                 let path = NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(
-                    checkbox_rect, 3.0, 3.0,
+                    checkbox_rect,
+                    3.0,
+                    3.0,
                 );
                 fill_color.setFill();
                 path.fill();
@@ -791,12 +848,12 @@ impl MditTextView {
                 let check = NSBezierPath::bezierPath();
                 check.setLineWidth(1.5);
                 let inset = box_size * 0.25;
-                let left   = x + inset;
-                let right  = x + box_size - inset;
-                let top    = y + inset;
+                let left = x + inset;
+                let right = x + box_size - inset;
+                let top = y + inset;
                 let bottom = y + box_size - inset;
-                let mid_x  = x + box_size * 0.42;
-                let mid_y  = y + box_size * 0.62;
+                let mid_x = x + box_size * 0.42;
+                let mid_y = y + box_size * 0.62;
                 check.moveToPoint(NSPoint::new(left, top + (mid_y - top) * 0.3));
                 check.lineToPoint(NSPoint::new(mid_x, bottom));
                 check.lineToPoint(NSPoint::new(right, top));
@@ -807,14 +864,19 @@ impl MditTextView {
                 let (mr, mg, mb) = scheme.list_marker;
                 let stroke_color = NSColor::colorWithRed_green_blue_alpha(mr, mg, mb, 0.6);
                 let path = NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(
-                    checkbox_rect, 3.0, 3.0,
+                    checkbox_rect,
+                    3.0,
+                    3.0,
                 );
                 path.setLineWidth(1.0);
                 stroke_color.setStroke();
                 path.stroke();
             }
 
-            self.ivars().checkbox_rects.borrow_mut().push((checkbox_rect, info.byte_offset));
+            self.ivars()
+                .checkbox_rects
+                .borrow_mut()
+                .push((checkbox_rect, info.byte_offset));
         }
     }
 }

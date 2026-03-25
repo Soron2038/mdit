@@ -597,6 +597,11 @@ fn build_font(attrs: &AttributeSet, base_size: f64) -> Retained<NSFont> {
     if attrs.contains(&TextAttribute::Hidden) && !has_checkbox {
         return unsafe { NSFont::systemFontOfSize_weight(0.001, NSFontWeightRegular) };
     }
+    // TaskCheckbox: use monospace font so " " and "x" have identical width,
+    // preventing text from shifting when toggling checkbox state.
+    if has_checkbox {
+        return NSFont::monospacedSystemFontOfSize_weight(base_size, unsafe { NSFontWeightRegular });
+    }
 
     let size = attrs.font_size().unwrap_or(base_size);
     let bold = attrs.contains(&TextAttribute::Bold);
