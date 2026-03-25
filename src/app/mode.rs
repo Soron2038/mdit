@@ -80,7 +80,7 @@ impl AppDelegate {
         if self.ivars().find.is_open() {
             if let Some(fb) = self.ivars().find_bar.get() {
                 let count = self.ivars().find.match_count();
-                self.ivars().find.update_bar_height(&fb, count, new_mode);
+                self.ivars().find.update_bar_height(fb, count, new_mode);
                 // If bar height changed, update the find bar frame and scroll view
                 let new_h = self.ivars().find.bar_height();
                 let w = win.contentView().unwrap().bounds().size.width;

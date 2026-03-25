@@ -128,7 +128,7 @@ pub(super) fn insert_code_block(tv: &NSTextView) {
 
 /// Find all occurrences of `query` in `text`, returning NSRange for each match.
 /// Uses NSString's rangeOfString:options:range: for proper Unicode + UTF-16 handling.
-pub(crate) fn find_all_ranges(text: &NSString, query: &NSString, case_insensitive: bool) -> Vec<NSRange> {
+pub(super) fn find_all_ranges(text: &NSString, query: &NSString, case_insensitive: bool) -> Vec<NSRange> {
     let mut ranges = Vec::new();
     let len = text.length();
     if len == 0 || query.length() == 0 { return ranges; }
