@@ -109,6 +109,28 @@ const BTN_DEFS: &[ButtonDef] = &[
         tooltip: "Code block",
         fallback: "```",
     },
+    // ── list group ───────────────────────────────────────────────────────
+    ButtonDef {
+        kind: ButtonKind::SfSymbol("list.bullet"),
+        selector: c"applyBulletList:",
+        start_new_group: true,
+        tooltip: "Bullet list",
+        fallback: "\u{2022}",
+    },
+    ButtonDef {
+        kind: ButtonKind::SfSymbol("list.number"),
+        selector: c"applyNumberedList:",
+        start_new_group: false,
+        tooltip: "Numbered list",
+        fallback: "1.",
+    },
+    ButtonDef {
+        kind: ButtonKind::SfSymbol("checklist"),
+        selector: c"applyTaskList:",
+        start_new_group: false,
+        tooltip: "Task list",
+        fallback: "[]",
+    },
     // ── inline group ─────────────────────────────────────────────────────
     ButtonDef {
         kind: ButtonKind::SfSymbol("bold"),
@@ -137,6 +159,13 @@ const BTN_DEFS: &[ButtonDef] = &[
         start_new_group: false,
         tooltip: "Strikethrough",
         fallback: "~~",
+    },
+    ButtonDef {
+        kind: ButtonKind::SfSymbol("underline"),
+        selector: c"applyUnderline:",
+        start_new_group: false,
+        tooltip: "Underline (\u{2318}U)",
+        fallback: "U",
     },
     // ── highlight / sub / super group ────────────────────────────────────
     ButtonDef {

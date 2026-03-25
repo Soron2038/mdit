@@ -8,7 +8,7 @@
 // ---------------------------------------------------------------------------
 
 /// Known block-level prefixes, longest first so `### ` is matched before `# `.
-const BLOCK_PREFIXES: &[&str] = &["### ", "## ", "# ", "> "];
+const BLOCK_PREFIXES: &[&str] = &["- [ ] ", "- [x] ", "### ", "## ", "# ", "1. ", "> ", "- "];
 
 /// Detect which block-level prefix (if any) a line starts with.
 pub fn detect_block_prefix(line: &str) -> Option<&'static str> {
@@ -48,7 +48,7 @@ pub fn set_block_format(line: &str, desired: &str) -> String {
 // ---------------------------------------------------------------------------
 
 /// Known symmetric inline markers, longest first to avoid partial matches.
-const KNOWN_MARKERS: &[&str] = &["**", "~~", "==", "`", "_", "~", "^"];
+const KNOWN_MARKERS: &[&str] = &["**", "__", "~~", "==", "`", "_", "~", "^"];
 
 /// Scan for matching marker layers surrounding a selection.
 ///

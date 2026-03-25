@@ -555,3 +555,73 @@ fn code_block_wrap_empty() {
 fn code_block_wrap_with_content() {
     assert_eq!(compute_code_block_wrap("let x = 1;"), "```\nlet x = 1;\n```");
 }
+
+// ── underline toggle ─────────────────────────────────────────────────────
+
+#[test]
+fn underline_wrap() {
+    let r = compute_inline_toggle("hello", "text ", " world", "__");
+    assert_eq!(r.replacement, "__hello__");
+}
+
+#[test]
+fn underline_unwrap() {
+    let r = compute_inline_toggle("hello", "__", "__", "__");
+    assert_eq!(r.replacement, "hello");
+}
+
+#[test]
+fn underline_in_bold() {
+    let r = compute_inline_toggle("hello", "**", "**", "__");
+    assert_eq!(r.replacement, "__hello__");
+}
+
+// ── list block format ────────────────────────────────────────────────────
+
+#[test]
+fn detect_bullet_list() {
+    assert_eq!(detect_block_prefix("- Hello"), Some("- "));
+}
+
+#[test]
+fn detect_numbered_list() {
+    assert_eq!(detect_block_prefix("1. Hello"), Some("1. "));
+}
+
+#[test]
+fn detect_task_list_unchecked() {
+    assert_eq!(detect_block_prefix("- [ ] Hello"), Some("- [ ] "));
+}
+
+#[test]
+fn detect_task_list_checked() {
+    assert_eq!(detect_block_prefix("- [x] Hello"), Some("- [x] "));
+}
+
+#[test]
+fn bullet_list_toggle() {
+    assert_eq!(set_block_format("Hello", "- "), "- Hello");
+    assert_eq!(set_block_format("- Hello", "- "), "Hello");
+}
+
+#[test]
+fn numbered_list_toggle() {
+    assert_eq!(set_block_format("Hello", "1. "), "1. Hello");
+    assert_eq!(set_block_format("1. Hello", "1. "), "Hello");
+}
+
+#[test]
+fn task_list_toggle() {
+    assert_eq!(set_block_format("Hello", "- [ ] "), "- [ ] Hello");
+    assert_eq!(set_block_format("- [ ] Hello", "- [ ] "), "Hello");
+}
+
+#[test]
+fn switch_bullet_to_heading() {
+    assert_eq!(set_block_format("- Hello", "# "), "# Hello");
+}
+
+#[test]
+fn switch_heading_to_bullet() {
+    assert_eq!(set_block_format("# Hello", "- "), "- Hello");
+}

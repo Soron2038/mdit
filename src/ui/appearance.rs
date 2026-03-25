@@ -13,6 +13,7 @@ pub struct ColorScheme {
     pub table_bg: (f64, f64, f64),
     pub syntax_marker: (f64, f64, f64),
     pub strikethrough: (f64, f64, f64),
+    pub underline: (f64, f64, f64),
     pub blockquote: (f64, f64, f64),
     pub list_marker: (f64, f64, f64),
     pub highlight_bg: (f64, f64, f64),
@@ -37,6 +38,7 @@ impl ColorScheme {
             table_bg:      (0.953, 0.937, 0.918),
             syntax_marker: (0.65,  0.60,  0.55),
             strikethrough: (0.55,  0.50,  0.45),
+            underline:     (0.10,  0.40,  0.80),
             blockquote:    (0.55,  0.45,  0.35),
             list_marker:   (0.784, 0.475, 0.255),
             highlight_bg:  (1.00,  0.93,  0.70),
@@ -60,6 +62,7 @@ impl ColorScheme {
             table_bg:      (0.16, 0.16, 0.17),
             syntax_marker: (0.50, 0.50, 0.55),
             strikethrough: (0.55, 0.55, 0.55),
+            underline:     (0.40, 0.70, 1.00),
             blockquote:    (0.50, 0.70, 0.75),
             list_marker:   (0.60, 0.55, 0.80),
             highlight_bg:  (0.55, 0.45, 0.10),
@@ -79,6 +82,7 @@ impl ColorScheme {
             "code_fg"      => Some(self.code_fg),
             "syntax"       => Some(self.syntax_marker),
             "strikethrough"=> Some(self.strikethrough),
+            "underline"    => Some(self.underline),
             "blockquote"   => Some(self.blockquote),
             "list_marker"  => Some(self.list_marker),
             "subscript"    => Some(self.subscript),
@@ -163,6 +167,7 @@ mod tests {
         assert!(s.resolve_fg("code_fg").is_some());
         assert!(s.resolve_fg("syntax").is_some());
         assert!(s.resolve_fg("strikethrough").is_some());
+        assert!(s.resolve_fg("underline").is_some());
         assert!(s.resolve_fg("blockquote").is_some());
         assert!(s.resolve_fg("list_marker").is_some());
         assert!(s.resolve_fg("subscript").is_some());

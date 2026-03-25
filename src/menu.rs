@@ -105,6 +105,7 @@ fn edit_menu(mtm: MainThreadMarker) -> Retained<NSMenuItem> {
         "x",
         mtm,
     )));
+    menu.addItem(&with_cmd(item("Underline", Some(sel!(applyUnderline:)), "u", mtm)));
     menu.addItem(&NSMenuItem::separatorItem(mtm));
 
     // Heading shortcuts — Cmd+1/2/3

@@ -244,6 +244,9 @@ define_class!(
         #[unsafe(method(applySuperscript:))]
         fn apply_superscript(&self, _sender: &AnyObject) { self.dispatch_inline_format("^"); }
 
+        #[unsafe(method(applyUnderline:))]
+        fn apply_underline(&self, _sender: &AnyObject) { self.dispatch_inline_format("__"); }
+
         // ── Appearance ─────────────────────────────────────────────────────
 
         #[unsafe(method(applyLightMode:))]
@@ -357,6 +360,15 @@ define_class!(
 
         #[unsafe(method(applyBlockquote:))]
         fn apply_blockquote(&self, _sender: &AnyObject) { self.dispatch_block_format("> "); }
+
+        #[unsafe(method(applyBulletList:))]
+        fn apply_bullet_list(&self, _sender: &AnyObject) { self.dispatch_block_format("- "); }
+
+        #[unsafe(method(applyNumberedList:))]
+        fn apply_numbered_list(&self, _sender: &AnyObject) { self.dispatch_block_format("1. "); }
+
+        #[unsafe(method(applyTaskList:))]
+        fn apply_task_list(&self, _sender: &AnyObject) { self.dispatch_block_format("- [ ] "); }
 
         #[unsafe(method(applyCodeBlock:))]
         fn apply_code_block(&self, _sender: &AnyObject) {
