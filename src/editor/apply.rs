@@ -599,8 +599,11 @@ fn build_font(attrs: &AttributeSet, base_size: f64) -> Retained<NSFont> {
     }
     // TaskCheckbox: use monospace font so " " and "x" have identical width,
     // preventing text from shifting when toggling checkbox state.
+    // Scaled down to ~60% so the 6-char marker ("- [ ] ") occupies roughly
+    // the same width as it would in the body serif font.
     if has_checkbox {
-        return NSFont::monospacedSystemFontOfSize_weight(base_size, unsafe { NSFontWeightRegular });
+        let checkbox_size = base_size * 0.6;
+        return NSFont::monospacedSystemFontOfSize_weight(checkbox_size, unsafe { NSFontWeightRegular });
     }
 
     let size = attrs.font_size().unwrap_or(base_size);
