@@ -439,3 +439,39 @@ fn table_info_has_source_range() {
     assert_eq!(info.source_range, (0, text.len()), "table source_range should span entire table");
 }
 
+// ── Task checkbox viewer/editor mode tests ────────────────────────────────────
+
+#[test]
+fn task_item_viewer_hides_checkbox() {
+    // Viewer mode: cursor_pos = None
+    let text = "- [ ] todo\n";
+    let spans = mdit::markdown::parser::parse(text);
+    let output = mdit::editor::renderer::compute_attribute_runs(text, &spans, None, 16.0);
+    let all_attrs: Vec<_> = output.runs.iter()
+        .flat_map(|r| r.attrs.attrs().iter())
+        .collect();
+    assert!(
+        all_attrs.iter().any(|a| matches!(a, mdit::markdown::attributes::TextAttribute::Hidden)),
+        "expected Hidden attribute on checkbox chars in viewer mode"
+    );
+    assert!(
+        all_attrs.iter().any(|a| matches!(a, mdit::markdown::attributes::TextAttribute::TaskCheckbox { .. })),
+        "expected TaskCheckbox attribute in viewer mode"
+    );
+}
+
+#[test]
+fn task_item_editor_no_checkbox_attr() {
+    // Editor mode: cursor_pos = Some (simulates cursor presence)
+    let text = "- [ ] todo\n";
+    let spans = mdit::markdown::parser::parse(text);
+    let output = mdit::editor::renderer::compute_attribute_runs(text, &spans, Some(0), 16.0);
+    let all_attrs: Vec<_> = output.runs.iter()
+        .flat_map(|r| r.attrs.attrs().iter())
+        .collect();
+    assert!(
+        !all_attrs.iter().any(|a| matches!(a, mdit::markdown::attributes::TextAttribute::TaskCheckbox { .. })),
+        "TaskCheckbox should NOT appear in editor mode"
+    );
+}
+
