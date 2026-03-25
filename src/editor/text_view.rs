@@ -765,11 +765,8 @@ impl MditTextView {
             let Some(glyph_idx) = glyph_for_char(&layout_manager, info.utf16_pos) else { continue };
             let Some(frag_rect) = frag_rect_for_glyph(&layout_manager, glyph_idx) else { continue };
 
-            // Position the checkbox vertically centered within the line fragment.
-            let glyph_loc: NSPoint = unsafe {
-                msg_send![&*layout_manager, locationForGlyphAtIndex: glyph_idx]
-            };
-            let x = frag_rect.origin.x + glyph_loc.x + tc_origin.x;
+            // Position the checkbox at the left edge of the line fragment.
+            let x = frag_rect.origin.x + tc_origin.x;
             let y = frag_rect.origin.y + tc_origin.y
                 + (frag_rect.size.height - box_size) / 2.0;
 
@@ -794,11 +791,11 @@ impl MditTextView {
                 let inset = box_size * 0.25;
                 let left   = x + inset;
                 let right  = x + box_size - inset;
-                let top    = y + box_size - inset;
-                let bottom = y + inset;
+                let top    = y + inset;
+                let bottom = y + box_size - inset;
                 let mid_x  = x + box_size * 0.42;
-                let mid_y  = y + box_size * 0.38;
-                check.moveToPoint(NSPoint::new(left, mid_y + (top - mid_y) * 0.3));
+                let mid_y  = y + box_size * 0.62;
+                check.moveToPoint(NSPoint::new(left, top + (mid_y - top) * 0.3));
                 check.lineToPoint(NSPoint::new(mid_x, bottom));
                 check.lineToPoint(NSPoint::new(right, top));
                 NSColor::whiteColor().setStroke();
