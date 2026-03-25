@@ -8,7 +8,7 @@ use objc2_app_kit::{
     NSFontWeightRegular, NSForegroundColorAttributeName, NSImage, NSPasteboard,
     NSPasteboardTypeString, NSRectFill, NSScrollView, NSTextView,
 };
-use objc2_foundation::{MainThreadMarker, NSObjectProtocol, NSPoint, NSRect, NSSize, NSString};
+use objc2_foundation::{MainThreadMarker, NSObjectProtocol, NSPoint, NSRange, NSRect, NSSize, NSString};
 
 use super::text_storage::MditEditorDelegate;
 use crate::editor::apply::TableGrid;
@@ -41,6 +41,9 @@ pub struct MditTextViewIvars {
     delegate: RefCell<Option<Retained<MditEditorDelegate>>>,
     /// Code-block copy-button overlay state (rects + feedback timer).
     overlay: RefCell<CodeBlockOverlayState>,
+    /// Task-list checkbox rects computed each draw cycle: (rect, byte_offset).
+    /// Populated in draw_checkboxes(), read in mouseDown:.
+    checkbox_rects: RefCell<Vec<(NSRect, usize)>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -134,6 +137,7 @@ define_class!(
                 self.draw_table_borders();
                 self.draw_table_separators(SeparatorAxis::Horizontal);
                 self.draw_table_separators(SeparatorAxis::Vertical);
+                self.draw_checkboxes();
             }
         }
 
@@ -150,6 +154,39 @@ define_class!(
             // Convert window coords → view coords.
             let window_point = event.locationInWindow();
             let view_point: NSPoint = self.convertPoint_fromView(window_point, None);
+
+            // Check for checkbox click (Viewer mode only).
+            if self.is_viewer_mode() {
+                let checkbox_hit = {
+                    let rects = self.ivars().checkbox_rects.borrow();
+                    rects.iter().find_map(|(rect, byte_offset)| {
+                        let in_rect = view_point.x >= rect.origin.x
+                            && view_point.x <= rect.origin.x + rect.size.width
+                            && view_point.y >= rect.origin.y
+                            && view_point.y <= rect.origin.y + rect.size.height;
+                        if in_rect { Some(*byte_offset) } else { None }
+                    })
+                };
+
+                if let Some(byte_offset) = checkbox_hit {
+                    // Toggle the character inside the brackets: [ ] <-> [x]
+                    // byte_offset points to '[', so byte_offset+1 is the space or 'x'.
+                    if let Some(storage) = unsafe { self.textStorage() } {
+                        let text = storage.string().to_string();
+                        if byte_offset + 1 < text.len() {
+                            let toggle_byte = byte_offset + 1;
+                            let current = text.as_bytes()[toggle_byte];
+                            let replacement = if current == b'x' { " " } else { "x" };
+                            // Convert byte offset to UTF-16 for NSRange.
+                            let utf16_pos = text[..toggle_byte].encode_utf16().count();
+                            let range = NSRange { location: utf16_pos, length: 1 };
+                            let ns_str = NSString::from_str(replacement);
+                            storage.replaceCharactersInRange_withString(range, &ns_str);
+                        }
+                    }
+                    return;
+                }
+            }
 
             // Find which copy-button (if any) was clicked.
             let click_result = {
@@ -200,6 +237,7 @@ impl MditTextView {
                 button_rects: Vec::new(),
                 feedback: None,
             }),
+            checkbox_rects: RefCell::new(Vec::new()),
         });
         unsafe { msg_send![super(this), initWithFrame: frame] }
     }
@@ -694,6 +732,90 @@ impl MditTextView {
                 NSColor::secondaryLabelColor().set();
             }
             icon.drawInRect(icon_rect);
+        }
+    }
+
+    /// Draw visual checkboxes over hidden `[ ]`/`[x]` markers for task list items.
+    /// Only called in Viewer mode. Populates checkbox_rects for hit-testing.
+    fn draw_checkboxes(&self) {
+        self.ivars().checkbox_rects.borrow_mut().clear();
+
+        let delegate_ref = self.ivars().delegate.borrow();
+        let delegate = match delegate_ref.as_ref() {
+            Some(d) => d,
+            None => return,
+        };
+        let infos = delegate.checkbox_infos();
+        if infos.is_empty() {
+            return;
+        }
+        let scheme = delegate.scheme();
+        let base_size = delegate.base_size();
+        drop(delegate_ref);
+
+        let (layout_manager, _text_container) = match self.layout_context() {
+            Some(ctx) => ctx,
+            None => return,
+        };
+
+        let tc_origin = self.textContainerOrigin();
+        let box_size = (base_size * 0.85).round();
+
+        for info in &infos {
+            let Some(glyph_idx) = glyph_for_char(&layout_manager, info.utf16_pos) else { continue };
+            let Some(frag_rect) = frag_rect_for_glyph(&layout_manager, glyph_idx) else { continue };
+
+            // Position the checkbox vertically centered within the line fragment.
+            let glyph_loc: NSPoint = unsafe {
+                msg_send![&*layout_manager, locationForGlyphAtIndex: glyph_idx]
+            };
+            let x = frag_rect.origin.x + glyph_loc.x + tc_origin.x;
+            let y = frag_rect.origin.y + tc_origin.y
+                + (frag_rect.size.height - box_size) / 2.0;
+
+            let checkbox_rect = NSRect::new(
+                NSPoint::new(x, y),
+                NSSize::new(box_size, box_size),
+            );
+
+            if info.checked {
+                // Filled rounded rect with accent color
+                let (ar, ag, ab) = scheme.accent;
+                let fill_color = NSColor::colorWithRed_green_blue_alpha(ar, ag, ab, 1.0);
+                let path = NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(
+                    checkbox_rect, 3.0, 3.0,
+                );
+                fill_color.setFill();
+                path.fill();
+
+                // White checkmark path
+                let check = NSBezierPath::bezierPath();
+                check.setLineWidth(1.5);
+                let inset = box_size * 0.25;
+                let left   = x + inset;
+                let right  = x + box_size - inset;
+                let top    = y + box_size - inset;
+                let bottom = y + inset;
+                let mid_x  = x + box_size * 0.42;
+                let mid_y  = y + box_size * 0.38;
+                check.moveToPoint(NSPoint::new(left, mid_y + (top - mid_y) * 0.3));
+                check.lineToPoint(NSPoint::new(mid_x, bottom));
+                check.lineToPoint(NSPoint::new(right, top));
+                NSColor::whiteColor().setStroke();
+                check.stroke();
+            } else {
+                // Outline rounded rect
+                let (mr, mg, mb) = scheme.list_marker;
+                let stroke_color = NSColor::colorWithRed_green_blue_alpha(mr, mg, mb, 0.6);
+                let path = NSBezierPath::bezierPathWithRoundedRect_xRadius_yRadius(
+                    checkbox_rect, 3.0, 3.0,
+                );
+                path.setLineWidth(1.0);
+                stroke_color.setStroke();
+                path.stroke();
+            }
+
+            self.ivars().checkbox_rects.borrow_mut().push((checkbox_rect, info.byte_offset));
         }
     }
 }
