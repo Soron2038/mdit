@@ -49,7 +49,7 @@ Erledigte Punkte bleiben abgehakt als Fortschritts-Dokumentation.
 
 ## Priorität 3 — Code-Qualität (bereits geplant)
 
-- [ ] **Refactoring: Duplizierten Code extrahieren**
+- [x] **Refactoring: Duplizierten Code extrahieren**
   ~475 Zeilen Duplikat über 5 Dateien. Utility-Funktionen extrahieren, überlange Funktionen aufteilen,
   englische Doc-Kommentare ergänzen. Keine Verhaltensänderungen.
   Plan liegt bereits unter: `docs/superpowers/plans/2026-03-18-code-quality-refactoring.md`
@@ -58,15 +58,15 @@ Erledigte Punkte bleiben abgehakt als Fortschritts-Dokumentation.
 
 ## Priorität 4 — GitHub Release vorbereiten
 
-- [ ] **README.md ausbauen**
+- [x] **README.md ausbauen**
   Aktuell minimales README. Ergänzen: Screenshots, Feature-Liste, Installation (DMG + `cargo build`),
   Tastenkürzel-Übersicht, Contribution-Guidelines.
 
-- [ ] **Erstes GitHub Release taggen (v1.0.0)**
+- [x] **Erstes GitHub Release taggen (v1.0.0)**
   DMG unter `dist/` als Release-Asset hochladen. Release Notes schreiben.
   Tag: `v1.0.0`, Branch: `main`.
 
-- [ ] **GitHub Repository Topics & Description setzen**
+- [x] **GitHub Repository Topics & Description setzen**
   Topics: `markdown`, `editor`, `macos`, `rust`, `appkit`, `typora`
   Description: "Native macOS Markdown editor. No Electron. 4 MB."
 
