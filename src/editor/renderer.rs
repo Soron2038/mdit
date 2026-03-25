@@ -219,8 +219,17 @@ fn collect_runs(
                 collect_runs(text, child, cursor_pos, base_size, inherited, runs, table_infos);
             }
         }
-        NodeKind::Item | NodeKind::TaskItem { .. } => {
+        NodeKind::Item => {
             collect_item(text, span, cursor_pos, base_size, inherited, runs, table_infos);
+        }
+        NodeKind::TaskItem { checked } => {
+            if cursor_pos.is_none() {
+                // Viewer mode: visual checkbox overlay
+                collect_task_item_viewer(text, span, *checked, base_size, inherited, runs, table_infos);
+            } else {
+                // Editor mode: raw markdown like a regular item
+                collect_item(text, span, cursor_pos, base_size, inherited, runs, table_infos);
+            }
         }
         NodeKind::Table => {
             collect_table(text, span, cursor_pos, base_size, runs, table_infos);
@@ -444,6 +453,66 @@ fn collect_item(
     }
     for child in &span.children {
         collect_runs(text, child, cursor_pos, base_size, inherited, runs, table_infos);
+    }
+}
+
+/// Task list item in Viewer mode: hide checkbox chars, emit TaskCheckbox attribute.
+fn collect_task_item_viewer(
+    text: &str,
+    span: &MarkdownSpan,
+    checked: bool,
+    base_size: f64,
+    inherited: &[TextAttribute],
+    runs: &mut Vec<AttributeRun>,
+    table_infos: &mut Vec<TableInfo>,
+) {
+    let (start, end) = (span.source_range.0, span.source_range.1.min(text.len()));
+    let marker_end = span
+        .children
+        .first()
+        .map(|c| c.source_range.0)
+        .unwrap_or(start + 6)
+        .min(end);
+
+    // Find the '[' within the marker region (e.g. "- [ ] " or "- [x] ").
+    let marker_slice = &text[start..marker_end];
+    if let Some(bracket_rel) = marker_slice.find('[') {
+        let bracket_abs = start + bracket_rel;
+        // "- " prefix: styled as list marker
+        if start < bracket_abs {
+            runs.push(AttributeRun {
+                range: (start, bracket_abs),
+                attrs: AttributeSet::for_list_marker(),
+            });
+        }
+        // "[ ] " or "[x] " (bracket + check + bracket + space = 4 bytes): hidden + TaskCheckbox
+        let checkbox_end = (bracket_abs + 4).min(marker_end);
+        runs.push(AttributeRun {
+            range: (bracket_abs, checkbox_end),
+            attrs: AttributeSet::new(vec![
+                TextAttribute::Hidden,
+                TextAttribute::TaskCheckbox { checked, byte_offset: bracket_abs },
+            ]),
+        });
+        // Any remaining marker chars
+        if checkbox_end < marker_end {
+            runs.push(AttributeRun {
+                range: (checkbox_end, marker_end),
+                attrs: AttributeSet::for_list_marker(),
+            });
+        }
+    } else {
+        // Fallback: no bracket found, treat like regular item
+        if start < marker_end {
+            runs.push(AttributeRun {
+                range: (start, marker_end),
+                attrs: AttributeSet::for_list_marker(),
+            });
+        }
+    }
+    // Recurse into children (the actual task text)
+    for child in &span.children {
+        collect_runs(text, child, None, base_size, inherited, runs, table_infos);
     }
 }
 

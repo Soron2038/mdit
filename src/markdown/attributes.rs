@@ -13,6 +13,7 @@ pub enum TextAttribute {
     ListMarker,
     BlockquoteBar,
     Strikethrough,
+    Underline,
     Superscript,
     Subscript,
     LineSpacing(u32), // in tenths of a point (e.g. 96 = 9.6pt)
@@ -24,6 +25,9 @@ pub enum TextAttribute {
     ThematicBreak,
     /// Clickable link — value is the target URL string.
     Link(String),
+    /// Task list checkbox — rendered as a visual overlay in Viewer mode.
+    /// `byte_offset` is the position of `[` in the source text.
+    TaskCheckbox { checked: bool, byte_offset: usize },
 }
 
 #[derive(Debug, Clone, Default)]
@@ -112,6 +116,13 @@ impl AttributeSet {
         Self::new(vec![
             TextAttribute::Strikethrough,
             TextAttribute::ForegroundColor("strikethrough"),
+        ])
+    }
+
+    pub fn for_underline() -> Self {
+        Self::new(vec![
+            TextAttribute::Underline,
+            TextAttribute::ForegroundColor("underline"),
         ])
     }
 

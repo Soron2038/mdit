@@ -12,7 +12,8 @@ use objc2_app_kit::{
     NSFontDescriptorSymbolicTraits, NSFontWeightBold, NSFontWeightRegular,
     NSForegroundColorAttributeName, NSKernAttributeName, NSLinkAttributeName,
     NSMutableParagraphStyle, NSParagraphStyleAttributeName,
-    NSStrikethroughStyleAttributeName, NSSuperscriptAttributeName, NSTextStorage,
+    NSStrikethroughStyleAttributeName, NSSuperscriptAttributeName,
+    NSUnderlineStyleAttributeName, NSTextStorage,
 };
 use objc2_foundation::{NSNumber, NSRange, NSSize, NSString, NSURL};
 
@@ -184,6 +185,7 @@ fn reset_to_body_style(
         storage.removeAttribute_range(NSBackgroundColorAttributeName, full_range);
         storage.removeAttribute_range(NSStrikethroughStyleAttributeName, full_range);
         storage.removeAttribute_range(NSKernAttributeName, full_range);
+        storage.removeAttribute_range(NSUnderlineStyleAttributeName, full_range);
         storage.removeAttribute_range(NSSuperscriptAttributeName, full_range);
     }
 }
@@ -497,6 +499,16 @@ fn apply_attr_set(
                     );
                 }
             }
+            TextAttribute::Underline => {
+                let num = NSNumber::numberWithInteger(1);
+                unsafe {
+                    storage.addAttribute_value_range(
+                        NSUnderlineStyleAttributeName,
+                        num.as_ref(),
+                        range,
+                    );
+                }
+            }
             TextAttribute::Superscript => {
                 let num = NSNumber::numberWithInteger(1);
                 unsafe {
@@ -536,7 +548,8 @@ fn apply_attr_set(
             | TextAttribute::BlockquoteBar
             | TextAttribute::LineSpacing(_)
             | TextAttribute::HeadingSeparator
-            | TextAttribute::ThematicBreak => {}
+            | TextAttribute::ThematicBreak
+            | TextAttribute::TaskCheckbox { .. } => {}
         }
     }
 }
