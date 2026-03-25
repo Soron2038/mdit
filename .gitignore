@@ -18,7 +18,19 @@ dist/
 # SupePowers specs
 .superpowers/
 
-# Temporary test.md
-TEST.md 
-Sidebar Toggle Test.md
+# Claude tooling
+.claude/
+CLAUDE.md
+AGENTS.md
 
+# Internal docs
+FINISHING.md
+docs/
+
+# Local files
+MDIT.md
+rust_out
+
+# Temporary test.md
+TEST.md
+Sidebar Toggle Test.md

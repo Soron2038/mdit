@@ -1,8 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(bash /Users/witt/Developer/mdit/scripts/build-dmg.sh)",
-      "Bash(./scripts/build-dmg.sh:*)"
-    ]
-  }
-}
