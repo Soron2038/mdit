@@ -108,7 +108,8 @@ impl ColorScheme {
 // ---------------------------------------------------------------------------
 
 /// The theme the user has explicitly selected.
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum ThemePreference {
     Light,
     Dark,

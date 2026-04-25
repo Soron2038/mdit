@@ -1,5 +1,5 @@
-use mdit::editor::cursor_tracker::find_containing_span;
-use mdit::markdown::parser::{parse, NodeKind};
+use mdit_core::render::cursor::find_containing_span;
+use mdit_core::markdown::parser::{parse, NodeKind};
 
 #[test]
 fn cursor_inside_bold_finds_strong_span() {

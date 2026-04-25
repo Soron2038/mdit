@@ -1,4 +1,4 @@
-use mdit::editor::formatting::{
+use mdit_core::document::formatting::{
     compute_code_block_wrap, compute_inline_toggle, compute_link_wrap, detect_block_prefix,
     find_surrounding_markers, peel_inline_markers, set_block_format, toggle_marker_in_layers,
     wrap_with_layers, InlineToggleResult,

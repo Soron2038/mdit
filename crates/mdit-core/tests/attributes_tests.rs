@@ -1,4 +1,4 @@
-use mdit::markdown::attributes::{AttributeSet, TextAttribute};
+use mdit_core::markdown::attributes::{AttributeSet, TextAttribute};
 
 #[test]
 fn bold_gets_bold_font_trait() {

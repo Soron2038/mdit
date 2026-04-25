@@ -1,6 +1,6 @@
-use mdit::editor::editor_renderer::compute_editor_runs;
-use mdit::markdown::attributes::TextAttribute;
-use mdit::markdown::parser::parse;
+use mdit_core::render::editor_mode::compute_editor_runs;
+use mdit_core::markdown::attributes::TextAttribute;
+use mdit_core::markdown::parser::parse;
 
 // ---------------------------------------------------------------------------
 // Basic structure

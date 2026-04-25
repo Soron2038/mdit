@@ -4,7 +4,7 @@
 //! styling (variable font sizes, hidden markers, custom drawing triggers), this
 //! renderer produces flat, uniform-sized output suitable for a raw text editor.
 
-use crate::editor::renderer::AttributeRun;
+use crate::render::viewer::AttributeRun;
 use crate::markdown::attributes::{AttributeSet, TextAttribute};
 use crate::markdown::parser::{MarkdownSpan, NodeKind};
 

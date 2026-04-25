@@ -1,4 +1,4 @@
-use mdit::editor::image_handler::generate_image_path;
+use mdit_core::document::image_path::generate_image_path;
 use std::path::Path;
 
 #[test]

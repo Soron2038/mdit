@@ -1,6 +1,6 @@
-use mdit::editor::renderer::compute_attribute_runs;
-use mdit::markdown::attributes::TextAttribute;
-use mdit::markdown::parser::parse;
+use mdit_core::render::viewer::compute_attribute_runs;
+use mdit_core::markdown::attributes::TextAttribute;
+use mdit_core::markdown::parser::parse;
 
 #[test]
 fn bold_span_gets_bold_attribute() {
@@ -290,10 +290,10 @@ fn empty_body_code_block_no_content_run() {
 #[test]
 fn code_block_code_content_captured() {
     let text = "```rust\nlet x = 1;\n```\n";
-    let spans = mdit::markdown::parser::parse(text);
-    let cb = spans.iter().find(|s| matches!(&s.kind, mdit::markdown::parser::NodeKind::CodeBlock { .. }));
+    let spans = mdit_core::markdown::parser::parse(text);
+    let cb = spans.iter().find(|s| matches!(&s.kind, mdit_core::markdown::parser::NodeKind::CodeBlock { .. }));
     assert!(cb.is_some(), "expected a CodeBlock span");
-    if let mdit::markdown::parser::NodeKind::CodeBlock { code, .. } = &cb.unwrap().kind {
+    if let mdit_core::markdown::parser::NodeKind::CodeBlock { code, .. } = &cb.unwrap().kind {
         assert_eq!(code, "let x = 1;", "code content should be extracted without fences");
     }
 }
@@ -445,17 +445,17 @@ fn table_info_has_source_range() {
 fn task_item_viewer_hides_checkbox() {
     // Viewer mode: cursor_pos = None
     let text = "- [ ] todo\n";
-    let spans = mdit::markdown::parser::parse(text);
-    let output = mdit::editor::renderer::compute_attribute_runs(text, &spans, None, 16.0);
+    let spans = mdit_core::markdown::parser::parse(text);
+    let output = mdit_core::render::viewer::compute_attribute_runs(text, &spans, None, 16.0);
     let all_attrs: Vec<_> = output.runs.iter()
         .flat_map(|r| r.attrs.attrs().iter())
         .collect();
     assert!(
-        all_attrs.iter().any(|a| matches!(a, mdit::markdown::attributes::TextAttribute::Hidden)),
+        all_attrs.iter().any(|a| matches!(a, mdit_core::markdown::attributes::TextAttribute::Hidden)),
         "expected Hidden attribute on checkbox chars in viewer mode"
     );
     assert!(
-        all_attrs.iter().any(|a| matches!(a, mdit::markdown::attributes::TextAttribute::TaskCheckbox { .. })),
+        all_attrs.iter().any(|a| matches!(a, mdit_core::markdown::attributes::TextAttribute::TaskCheckbox { .. })),
         "expected TaskCheckbox attribute in viewer mode"
     );
 }
@@ -464,13 +464,13 @@ fn task_item_viewer_hides_checkbox() {
 fn task_item_editor_no_checkbox_attr() {
     // Editor mode: cursor_pos = Some (simulates cursor presence)
     let text = "- [ ] todo\n";
-    let spans = mdit::markdown::parser::parse(text);
-    let output = mdit::editor::renderer::compute_attribute_runs(text, &spans, Some(0), 16.0);
+    let spans = mdit_core::markdown::parser::parse(text);
+    let output = mdit_core::render::viewer::compute_attribute_runs(text, &spans, Some(0), 16.0);
     let all_attrs: Vec<_> = output.runs.iter()
         .flat_map(|r| r.attrs.attrs().iter())
         .collect();
     assert!(
-        !all_attrs.iter().any(|a| matches!(a, mdit::markdown::attributes::TextAttribute::TaskCheckbox { .. })),
+        !all_attrs.iter().any(|a| matches!(a, mdit_core::markdown::attributes::TextAttribute::TaskCheckbox { .. })),
         "TaskCheckbox should NOT appear in editor mode"
     );
 }

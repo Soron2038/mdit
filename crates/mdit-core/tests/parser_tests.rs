@@ -1,4 +1,4 @@
-use mdit::markdown::parser::{parse, MarkdownSpan, NodeKind};
+use mdit_core::markdown::parser::{parse, MarkdownSpan, NodeKind};
 
 /// Flatten the span tree into a flat vec for easier test assertions.
 fn flatten(spans: &[MarkdownSpan]) -> Vec<&MarkdownSpan> {

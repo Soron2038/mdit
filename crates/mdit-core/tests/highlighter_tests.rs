@@ -1,4 +1,4 @@
-use mdit::markdown::highlighter::highlight;
+use mdit_core::markdown::highlighter::highlight;
 
 #[test]
 fn highlights_rust_code() {

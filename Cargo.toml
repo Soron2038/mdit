@@ -1,59 +1,15 @@
-[package]
-name = "mdit"
+[workspace]
+resolver = "2"
+members = ["crates/mdit-core"]
+# Phase 0: AppKit-Build (root crate) ist bewusst entfernt.
+# Der alte src/ Code bleibt als Referenz, ist aber kein Workspace-Member.
+# Die GPUI-UI-Crate (crates/mdit-ui) entsteht in Phase 1+.
+
+[workspace.package]
 version = "1.0.0"
 edition = "2021"
-
-[[bin]]
-name = "mdit"
-path = "src/main.rs"
-
-[lib]
-name = "mdit"
-path = "src/lib.rs"
-
-[dependencies]
-objc2 = "0.6.3"
-block2 = "0.6"
-objc2-foundation = { version = "0.3.2", features = [
-    "NSString", "NSAttributedString",
-    "NSDictionary", "NSArray", "NSURL", "NSData",
-    "NSError", "NSValue", "NSUserDefaults",
-] }
-objc2-app-kit = { version = "0.3.2", features = [
-    "NSApplication",
-    "NSWindow", "NSWindowController",
-    "NSGraphics",
-    "NSTextView", "NSTextStorage", "NSLayoutManager", "NSTextContainer",
-    "NSScrollView",
-    "NSColor", "NSFont", "NSFontDescriptor",
-    "NSButton", "NSControl",
-    "NSPrintOperation", "NSPrintInfo",
-    "NSMenu", "NSMenuItem", "NSEvent",
-    "NSParagraphStyle", "NSText",
-    "NSResponder", "NSView",
-    "NSTextAttachment",
-    "NSAttributedString", "NSAppearance",
-    "NSTextField", "NSOpenPanel", "NSSavePanel", "NSAlert", "NSBox",
-    "NSBezierPath",
-    "NSPasteboard",
-    "NSImage",
-    "NSAnimation",
-    "NSAnimationContext",
-    "block2",
-    "objc2-quartz-core",
-] }
-objc2-quartz-core = { version = "0.3", features = ["CALayer", "CAMediaTimingFunction"] }
-objc2-core-graphics = { version = "0.3.2", features = ["CGColor"] }
-objc2-web-kit = { version = "0.3.2", features = [
-    "WKWebView",
-    "WKWebViewConfiguration",
-    "WKNavigation",
-] }
-comrak = { version = "0.50.0", default-features = false }
-syntect = { version = "5.3.0", default-features = false, features = [
-    "default-fancy",
-] }
-uuid = { version = "1.21.0", features = ["v4"] }
+license = "MIT"
+authors = ["Soron2038"]
 
 [profile.release]
 lto = true
